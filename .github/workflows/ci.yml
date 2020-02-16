@@ -1,0 +1,58 @@
+name: CI
+
+on:
+
+  push:
+    branches:
+      - master
+
+jobs:
+
+  release:
+    runs-on: ubuntu-latest
+    name: Release
+    steps:
+    
+      - name: Check out repository
+        uses: actions/checkout@v1
+        
+      - name: Import PGP private key
+        shell: bash
+        run: |
+          ./.github/scripts/import-pgp-private-key.sh
+        env:
+          PGP_PRIVATE_KEY: ${{ secrets.PGP_PRIVATE_KEY }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+            
+      - name: Maven repository cache
+        uses: actions/cache@v1
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-maven-
+          
+      - name: Set up Java and Maven
+        uses: actions/setup-java@v1
+        with:
+          java-version: 8
+          
+      - name: Deploy to GitHub repository
+        shell: bash
+        run: |
+          mvn -B deploy -Dgpg.passphrase="${PGP_PASSPHRASE}"
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          GITHUB_TOKEN: ${{ secrets.github_token }}
+          
+      - name: Generate Maven site
+        shell: bash
+        run: |
+          mvn -B site
+        
+      - name: Update GitHub Pages
+        shell: bash
+        run: |
+          ./.github/scripts/update-gh-pages.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.github_token }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
