@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- https://maven.apache.org/plugins/maven-site-plugin/examples/sitedescriptor.html -->
+<project
+    xmlns="http://maven.apache.org/DECORATION/1.8.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/DECORATION/1.8.0 http://maven.apache.org/xsd/decoration-1.8.0.xsd">
+    
+    <bannerLeft>
+        <name>Packer Maven Plugin</name>
+    </bannerLeft>
+    
+    <body>
+        <menu ref="modules"/>
+        <menu ref="reports"/>
+    </body>
+    
+    <skin>
+        <groupId>org.apache.maven.skins</groupId>
+        <artifactId>maven-fluido-skin</artifactId>
+        <version>1.7</version> <!-- 1.8 needs newer site plugin version -->
+    </skin>
+    
+    <custom>
+        <fluidoSkin>
+            <topBarEnabled>true</topBarEnabled>
+            <sideBarEnabled>true</sideBarEnabled>
+        </fluidoSkin>
+    </custom>
+    
+</project>
