@@ -1,4 +1,4 @@
-package io.github.miquelo.maven.plugin.packer.filehash;
+package io.github.miquelo.tools.packer;
 
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -15,7 +15,7 @@ import java.util.Arrays;
 
 import com.google.common.base.Objects;
 
-public class FileHash
+class FileHash
 {
     private static final int DIGEST_BUFFER_SIZE = 4 * 1024;
     

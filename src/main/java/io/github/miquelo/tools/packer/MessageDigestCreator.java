@@ -1,4 +1,4 @@
-package io.github.miquelo.maven.plugin.packer.filehash;
+package io.github.miquelo.tools.packer;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

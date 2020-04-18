@@ -1,39 +1,33 @@
 package io.github.miquelo.maven.plugin.packer;
 
-import static java.lang.String.format;
-import static java.util.function.Function.identity;
-import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
+import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_ERROR;
+import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_MESSAGE;
+import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_SAY;
+import static io.github.miquelo.tools.packer.PackerOutputMessage.TYPE_UI;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
-import java.util.AbstractMap.SimpleEntry;
-import java.util.List;
-import java.util.Map;
+import java.security.MessageDigest;
+import java.util.Collection;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.shared.model.fileset.FileSet;
 import org.apache.maven.shared.model.fileset.util.FileSetManager;
+
+import io.github.miquelo.tools.packer.PackerCommandException;
+import io.github.miquelo.tools.packer.PackerCommandFailureException;
+import io.github.miquelo.tools.packer.PackerOutputMessage;
+import io.github.miquelo.tools.packer.PackerTool;
 
 /**
  * Run a Packer build command.
@@ -41,28 +35,9 @@ import org.apache.maven.shared.model.fileset.util.FileSetManager;
 @Mojo(
     name="build"
 )
-public class PackerBuildMojo
-extends AbstractMojo
+public final class PackerBuildMojo
+extends AbstractPackerMojo
 {
-    private static final Map<String, BiConsumer<Log, String>>
-        LOG_BI_CONSUMER_MAP = Stream.of(
-            new SimpleEntry<String, BiConsumer<Log, String>>(
-                "info",
-                Log::info),
-            new SimpleEntry<String, BiConsumer<Log, String>>(
-                "say",
-                Log::info),
-            new SimpleEntry<String, BiConsumer<Log, String>>(
-                "message",
-                Log::info),
-            new SimpleEntry<String, BiConsumer<Log, String>>(
-                "warn",
-                Log::warn),
-            new SimpleEntry<String, BiConsumer<Log, String>>(
-                "error",
-                Log::error))
-            .collect(toMap(Entry::getKey, Entry::getValue));
-    
     private final FileSetManager fileSetManager;
     
     @Parameter(
@@ -81,12 +56,12 @@ extends AbstractMojo
     private FileSet fileSet;
     
     /**
-     * Template file name located on root of file set.
+     * Template path relative to source directory.
      */
     @Parameter(
         defaultValue="template.json"
     )
-    private String templateFileName;
+    private String templatePath;
     
     /**
      * Variables for template.
@@ -101,14 +76,6 @@ extends AbstractMojo
         defaultValue="false"
     )
     private boolean force;
-    
-    /**
-     * Whether this execution must be skipped.
-     */
-    @Parameter(
-        defaultValue="false"
-    )
-    private boolean skip;
     
     /**
      * Whether must be some change for this build in order to be executed.
@@ -131,137 +98,78 @@ extends AbstractMojo
         fileSetManager = new FileSetManager(getLog());
         project = null;
         fileSet = null;
-        templateFileName = null;
+        templatePath = null;
         vars = null;
         force = false;
-        skip = false;
         changesNeeded = false;
         invalidateOnFailure = false;
     }
     
     @Override
-    public void execute()
+    public void execute(PackerTool packerTool)
     throws MojoFailureException, MojoExecutionException
-    {
-        if (skip)
-            getLog().info("Execution skipped...");
-        else
-            execute(new PackerBuildSourceFiles(
-                getLog(),
-                new File(fileSet.getDirectory()),
-                new File(fileSet.getOutputDirectory()),
-                Stream.of(fileSetManager.getIncludedFiles(fileSet))
-                    .collect(toSet())));
-    }
-    
-    private void execute(PackerBuildSourceFiles sourceFiles)
-    throws MojoFailureException, MojoExecutionException
-    {
-        if (sourceFiles.hasChanges())
-        {
-            sourceFiles.updateAll();
-            executeBuild(sourceFiles);
-        }
-        else if (changesNeeded)
-            getLog().info("There is not any change. Ignoring...");
-        else
-            executeBuild(sourceFiles);
-    }
-    
-    private void executeBuild(PackerBuildSourceFiles sourceFiles)
-    throws MojoFailureException, MojoExecutionException
-    {
-        if (!toolBuild(
-            sourceFiles.getWorkingDir(),
-            templateFileName,
-            Optional.ofNullable(vars)
-                .orElseGet(Properties::new)))
-        {
-            if (invalidateOnFailure)
-                sourceFiles.invalidateWorkingDir();
-            throw new MojoFailureException("Packer build has failed");
-        }
-    }
-    
-    private boolean toolBuild(
-        File workingDir,
-        String templateFileName,
-        Properties vars)
-    throws MojoFailureException, MojoExecutionException
-    {
-        return toolBuild(
-            workingDir,
-            Stream.of(
-                Stream.of("packer"),
-                Stream.of("build"),
-                Stream.of("-machine-readable"),
-                vars.entrySet().stream()
-                    .flatMap(entry -> Stream.of(
-                        "-var",
-                        format("'%s=%s'", entry.getKey(), entry.getValue()))),
-                Stream.of("-force")
-                    .filter(arg -> force),
-                Stream.of(templateFileName))
-                .flatMap(identity())
-                .collect(toList()));
-    }
-    
-    private boolean toolBuild(File workingDir, List<String> args)
-    throws MojoFailureException, MojoExecutionException 
     {
         try
         {
-            getLog().debug(format(
-                "Going to run [%s] inside %s",
-                args.stream()
-                    .collect(joining(" ")),
-                workingDir.getAbsolutePath()));
-            
-            Process process = new ProcessBuilder(args)
-                .directory(workingDir)
-                .start();
-            
-            ExecutorService logStreamService = Executors.newFixedThreadPool(2);
-            logStreamService.submit(() -> logStream(process.getInputStream()));
-            
-            process.waitFor(1, TimeUnit.HOURS);
-            return process.exitValue() == 0;
+            packerTool.build(
+                MessageDigest::getInstance,
+                new File(fileSet.getDirectory()),
+                new File(fileSet.getOutputDirectory()),
+                Stream.of(fileSetManager.getIncludedFiles(fileSet))
+                    .collect(toSet()),
+                changesNeeded,
+                invalidateOnFailure,
+                templatePath,
+                force,
+                Optional.ofNullable(vars)
+                    .map(Properties::entrySet)
+                    .map(Collection::stream)
+                    .orElseGet(Stream::empty)
+                    .collect(toMap(
+                        e -> e.getKey().toString(),
+                        Entry::getValue)))
+                .execute();
         }
-        catch (IOException exception)
+        catch (PackerCommandException exception)
         {
-            throw new MojoExecutionException(
-                "Could not execute packer",
-                exception);
+            throw new MojoExecutionException("Packer error", exception);
+        }
+        catch (PackerCommandFailureException exception)
+        {
+            throw new MojoFailureException("Packer failure", exception);
         }
         catch (InterruptedException exception)
         {
-            throw new MojoExecutionException(
-                "Packer execution was interrupted",
-                exception);
+            // Nothing to be done...
+        }
+    }
+
+    @Override
+    protected void acceptOutputMessage(PackerOutputMessage message)
+    {
+        if (TYPE_UI.equals(message.getType()))
+        {
+            String[] data = message.getData();
+            switch (data[0])
+            {
+                case DATA_UI_MESSAGE:
+                case DATA_UI_SAY:
+                forEachLine(data[1], line -> getLog().info(line));
+                break;
+                case DATA_UI_ERROR:
+                forEachLine(data[1], line -> getLog().error(line));
+                break;
+                default:
+                forEachLine(data[1], line -> getLog().debug(line));
+            }
         }
     }
     
-    private void logStream(InputStream input)
+    private static void forEachLine(
+        String str,
+        Consumer<String> lineConsumer)
     {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-            input)))
-        {
-            String line = reader.readLine();
-            while (line != null)
-            {
-                String[] parts = line.split(",");
-                Stream.of(parts.length < 5 ? "" : parts[4])
-                    .flatMap(part -> Stream.of(part.split("\\\\n")))
-                    .forEach(msg -> Optional.ofNullable(
-                        LOG_BI_CONSUMER_MAP.get(parts[3]))
-                        .orElse(Log::debug)
-                        .accept(getLog(), msg));
-                line = reader.readLine();
-            }
-        }
-        catch (IOException exception)
-        {
-            throw new UncheckedIOException(exception);
-        }
+        Stream.of(str.split("\\\\n"))
+            .forEach(line -> lineConsumer.accept(line));
     }
 }
