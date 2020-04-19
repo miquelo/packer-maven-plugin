@@ -48,8 +48,48 @@ public abstract class PackerCommand
         PackerCommandFailureException,
         InterruptedException
     {
+        execute(new Thread(this::aborted));
+    }
+    
+    protected Optional<File> getDesiredWorkingDir()
+    {
+        return Optional.empty();
+    }
+    
+    protected boolean init()
+    throws PackerCommandException
+    {
+        return true;
+    }
+    
+    protected void onSuccess()
+    {
+        // Do nothing by default...
+    }
+    
+    protected void onFailure(FailureCode failureCode)
+    {
+        // Do nothing by default...
+    }
+    
+    protected void onAbort()
+    {
+        // Do nothing by default...
+    }
+    
+    protected abstract FailureCode mapFailureCode(int errorCode);
+    
+    public final void execute(Thread shutdownHook)
+    throws
+        PackerCommandException,
+        PackerCommandFailureException,
+        InterruptedException
+    {
         try
         {
+            Runtime.getRuntime()
+                .addShutdownHook(shutdownHook);
+            
             if (init())
             {
                 File workingDir = getDesiredWorkingDir()
@@ -78,30 +118,12 @@ public abstract class PackerCommand
                 "Packer command execution failure",
                 exception);
         }
+        finally
+        {
+            Runtime.getRuntime()
+                .removeShutdownHook(shutdownHook);
+        }
     }
-    
-    protected Optional<File> getDesiredWorkingDir()
-    {
-        return Optional.empty();
-    }
-    
-    protected boolean init()
-    throws PackerCommandException
-    {
-        return true;
-    }
-    
-    protected void onSuccess()
-    {
-        // Do nothing by default...
-    }
-    
-    protected void onFailure(FailureCode failureCode)
-    {
-        // Do nothing by default...
-    }
-    
-    protected abstract FailureCode mapFailureCode(int errorCode);
     
     private int launch(File workingDir)
     throws PackerCommandException, InterruptedException, ExecutionException
@@ -116,6 +138,12 @@ public abstract class PackerCommand
                 "Could not launch Packer command",
                 exception);
         }
+    }
+    
+    private void aborted()
+    {
+        onAbort();
+        logger.warn("Packer execution aborted");
     }
     
     private static File defaultWorkingDir()

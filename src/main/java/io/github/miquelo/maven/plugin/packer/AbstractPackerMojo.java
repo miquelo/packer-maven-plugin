@@ -34,7 +34,7 @@ extends AbstractMojo
     }
     
     @Override
-    public void execute()
+    public final void execute()
     throws MojoFailureException, MojoExecutionException
     {
         if (skip)
@@ -46,7 +46,10 @@ extends AbstractMojo
     protected abstract void execute(PackerTool packerTool)
     throws MojoFailureException, MojoExecutionException;
     
-    protected abstract void acceptOutputMessage(PackerOutputMessage message);
+    protected void acceptOutputMessage(PackerOutputMessage message)
+    {
+        // Do nothing by default...
+    }
     
     private static class MojoPackerCommandLogger
     implements PackerCommandLogger
@@ -62,6 +65,12 @@ extends AbstractMojo
         public void info(String message)
         {
             logSupplier.get().info(message);
+        }
+        
+        @Override
+        public void warn(String message)
+        {
+            logSupplier.get().warn(message);
         }
         
         @Override

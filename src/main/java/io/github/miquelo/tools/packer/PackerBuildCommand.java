@@ -129,6 +129,12 @@ extends PackerCommand
     }
     
     @Override
+    protected void onAbort()
+    {
+        invalidateWorkingFiles();
+    }
+    
+    @Override
     protected FailureCode mapFailureCode(int errorCode)
     {
         return FailureCode.FAILURE_ERROR;
