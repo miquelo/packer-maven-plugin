@@ -72,7 +72,7 @@ extends PackerCommand
                     .flatMap(var -> Stream.of(
                         "-var",
                         String.format(
-                            "'%s=%s'",
+                            "%s=%s",
                             var.getKey(),
                             var.getValue().toString()))),
                 Stream.of(templatePath))
