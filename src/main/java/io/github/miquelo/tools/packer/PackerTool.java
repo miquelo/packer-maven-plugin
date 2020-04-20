@@ -45,6 +45,7 @@ public final class PackerTool
         Set<String> sourceFilePathSet,
         boolean changesNeeded,
         boolean invalidateOnFailure,
+        boolean keepCache,
         String templatePath,
         boolean force,
         Map<String, Object> vars)
@@ -60,6 +61,7 @@ public final class PackerTool
             sourceFilePathSet,
             changesNeeded,
             invalidateOnFailure,
+            keepCache,
             templatePath,
             force,
             vars);

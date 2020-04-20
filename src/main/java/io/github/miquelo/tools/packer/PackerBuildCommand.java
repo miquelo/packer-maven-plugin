@@ -34,6 +34,8 @@ extends PackerCommand
     
     private static final String CHECKSUM_ALGORITHM = "SHA-256";
     private static final String CHECKSUM_FILE_NAME = ".checksum";
+
+    private static final String CACHE_PATH = "packer_cache";
     
     private final File sourceDir;
     private final File workingDir;
@@ -41,6 +43,7 @@ extends PackerCommand
     private final List<FileHash> sourceFileHashList;
     private final boolean changesNeeded;
     private final boolean invalidateOnFailure;
+    private final boolean keepCache;
     
     public PackerBuildCommand(
         PackerCommandLauncher launcher,
@@ -52,6 +55,7 @@ extends PackerCommand
         Set<String> sourceFilePathSet,
         boolean changesNeeded,
         boolean invalidateOnFailure,
+        boolean keepCache,
         String templatePath,
         boolean force,
         Map<String, Object> vars)
@@ -93,6 +97,7 @@ extends PackerCommand
             sourceFilePathSet);
         this.changesNeeded = changesNeeded;
         this.invalidateOnFailure = invalidateOnFailure;
+        this.keepCache = keepCache;
     }
     
     @Override
@@ -167,6 +172,18 @@ extends PackerCommand
         }
     }
     
+    private boolean isNotWorkingDir(Path path)
+    {
+        return !path.equals(Paths.get(workingDir.getAbsolutePath()));
+    }
+    
+    private boolean isNotKeepCacheOrNotCacheDir(Path path)
+    {
+        return !keepCache || !path.startsWith(Paths.get(
+            workingDir.getAbsolutePath(),
+            CACHE_PATH));
+    }
+    
     private void deleteWorkingFiles()
     throws PackerCommandException
     {
@@ -175,12 +192,8 @@ extends PackerCommand
             if (workingDir.exists())
                 walk(workingDir.toPath())
                     .sorted(reverseOrder())
-                    .filter(path -> !path.startsWith(Paths.get(
-                        workingDir.getAbsolutePath(),
-                        ".")))
-                    .filter(path -> !path.startsWith(Paths.get(
-                        workingDir.getAbsolutePath(),
-                        "packer_cache")))
+                    .filter(this::isNotWorkingDir)
+                    .filter(this::isNotKeepCacheOrNotCacheDir)
                     .map(Path::toFile)
                     .forEach(File::delete);
         }

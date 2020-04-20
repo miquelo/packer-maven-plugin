@@ -56,6 +56,30 @@ extends AbstractPackerMojo
     private FileSet fileSet;
     
     /**
+     * Whether must be some change for this build in order to be executed.
+     */
+    @Parameter(
+        defaultValue="true"
+    )
+    private boolean changesNeeded;
+    
+    /**
+     * Whether working files must be invalidated when build fails.
+     */
+    @Parameter(
+        defaultValue="true"
+    )
+    private boolean invalidateOnFailure;
+    
+    /**
+     * Whether cache files must be keep.
+     */
+    @Parameter(
+        defaultValue="false"
+    )
+    private boolean keepCache;
+    
+    /**
      * Template path relative to source directory.
      */
     @Parameter(
@@ -77,32 +101,16 @@ extends AbstractPackerMojo
     )
     private boolean force;
     
-    /**
-     * Whether must be some change for this build in order to be executed.
-     */
-    @Parameter(
-        defaultValue="true"
-    )
-    private boolean changesNeeded;
-    
-    /**
-     * Whether working files must be invalidated when build fails.
-     */
-    @Parameter(
-        defaultValue="true"
-    )
-    private boolean invalidateOnFailure;
-    
     public PackerBuildMojo()
     {
         fileSetManager = new FileSetManager(getLog());
         project = null;
         fileSet = null;
+        changesNeeded = false;
+        invalidateOnFailure = false;
         templatePath = null;
         vars = null;
         force = false;
-        changesNeeded = false;
-        invalidateOnFailure = false;
     }
     
     @Override
@@ -119,6 +127,7 @@ extends AbstractPackerMojo
                     .collect(toSet()),
                 changesNeeded,
                 invalidateOnFailure,
+                keepCache,
                 templatePath,
                 force,
                 Optional.ofNullable(vars)
