@@ -42,6 +42,8 @@ public abstract class PackerCommand
         this.args = requireNonNull(args);
     }
     
+    // TODO Consider returning a Future<T> associated to the process and
+    //      remove PackerCommandFailureException
     public final void execute()
     throws
         PackerCommandException,
