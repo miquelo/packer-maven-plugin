@@ -20,7 +20,6 @@ import java.security.Provider;
  *                                  java.util.Set,
  *                                  boolean,
  *                                  boolean,
- *                                  boolean,
  *                                  String,
  *                                  boolean,
  *                                  java.util.Set,

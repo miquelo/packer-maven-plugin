@@ -3,11 +3,11 @@ package io.github.miquelo.tools.packer;
 import static io.github.miquelo.tools.packer.PackerCommandFailureCode
     .FAILURE_ERROR;
 import static java.lang.String.format;
+import static java.lang.System.out;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.walk;
+import static java.nio.file.Files.delete;
 import static java.util.Comparator.comparing;
-import static java.util.Comparator.reverseOrder;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
@@ -19,7 +19,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -37,8 +36,6 @@ implements PackerCommand
     
     private static final String CHECKSUM_ALGORITHM = "SHA-256";
     private static final String CHECKSUM_FILE_NAME = ".checksum";
-
-    private static final String CACHE_PATH = "packer_cache";
     
     private final File sourceDir;
     private final File workingDir;
@@ -46,7 +43,6 @@ implements PackerCommand
     private final List<FileHash> sourceFileHashList;
     private final boolean changesNeeded;
     private final boolean invalidateOnFailure;
-    private final boolean keepCache;
     private final List<Object> arguments;
     
     public PackerBuildCommand(
@@ -56,7 +52,6 @@ implements PackerCommand
         Set<String> sourceFilePathSet,
         boolean changesNeeded,
         boolean invalidateOnFailure,
-        boolean keepCache,
         String templatePath,
         boolean force,
         Set<String> only,
@@ -82,7 +77,6 @@ implements PackerCommand
             sourceFilePathSet);
         this.changesNeeded = changesNeeded;
         this.invalidateOnFailure = invalidateOnFailure;
-        this.keepCache = keepCache;
         arguments = toArguments(
             templatePath,
             force,
@@ -118,7 +112,6 @@ implements PackerCommand
     {
         if (hasChanges())
         {
-            deleteWorkingFiles();
             prepareWorkingDir();
             prepareChecksumFile();
             updateWorkingFiles();
@@ -148,6 +141,7 @@ implements PackerCommand
     public void onAbort()
     {
         invalidateWorkingFiles();
+        breakOnNewLine();
     }
     
     @Override
@@ -183,39 +177,6 @@ implements PackerCommand
         }
     }
     
-    private boolean isNotWorkingDir(Path path)
-    {
-        return !path.equals(Paths.get(workingDir.getAbsolutePath()));
-    }
-    
-    private boolean isNotKeepCacheOrNotCacheDir(Path path)
-    {
-        return !keepCache || !path.startsWith(Paths.get(
-            workingDir.getAbsolutePath(),
-            CACHE_PATH));
-    }
-    
-    private void deleteWorkingFiles()
-    throws PackerCommandException
-    {
-        try
-        {
-            if (workingDir.exists())
-                walk(workingDir.toPath())
-                    .sorted(reverseOrder())
-                    .filter(this::isNotWorkingDir)
-                    .filter(this::isNotKeepCacheOrNotCacheDir)
-                    .map(Path::toFile)
-                    .forEach(File::delete);
-        }
-        catch (IOException exception)
-        {
-            throw new PackerCommandException(format(
-                "Could not delete files of working directory %s",
-                workingDir.getAbsolutePath()));
-        }
-    }
-    
     private void prepareWorkingDir()
     {
         if (!workingDir.exists())
@@ -248,17 +209,13 @@ implements PackerCommand
     {
         try (PrintWriter writer = new PrintWriter(checksumFile))
         {
-            sourceFileHashList.forEach(fileHash -> copyFile(
+            sourceFileHashList.forEach(fileHash -> updateFile(
                 writer,
                 fileHash.toString(),
-                Paths.get(
-                    sourceDir.getAbsolutePath(),
-                    fileHash.getRelativePath()),
-                Paths.get(
-                    workingDir.getAbsolutePath(),
-                    fileHash.getRelativePath())));
+                new File(sourceDir, fileHash.getRelativePath()),
+                new File(workingDir, fileHash.getRelativePath())));
         }
-        catch (CopyFileException exception)
+        catch (UpdateFileException exception)
         {
             throw new PackerCommandException(format(
                 "Could not update file %s from file %s",
@@ -358,22 +315,32 @@ implements PackerCommand
         }
     }
     
-    private static void copyFile(
+    private static void updateFile(
         PrintWriter checksumWriter,
         String hashStr,
-        Path sourcePath,
-        Path targetPath)
+        File sourceFile,
+        File targetFile)
     {
         try
         {
-            createDirectories(targetPath.getParent());
-            copy(sourcePath, targetPath);
+            createDirectories(targetFile.toPath().getParent());
+            if (targetFile.exists())
+                delete(targetFile.toPath());
+            copy(sourceFile.toPath(), targetFile.toPath());
             checksumWriter.println(hashStr);
         }
         catch (IOException exception)
         {
-            throw new CopyFileException(exception, sourcePath, targetPath);
+            throw new UpdateFileException(
+                exception,
+                sourceFile.toPath(),
+                targetFile.toPath());
         }
+    }
+    
+    private static void breakOnNewLine()
+    {
+        out.println();
     }
     
     private static class ToFileHashException
@@ -390,7 +357,7 @@ implements PackerCommand
         }
     }
     
-    private static class CopyFileException
+    private static class UpdateFileException
     extends RuntimeException
     {
         private static final long serialVersionUID = 1L;
@@ -398,7 +365,7 @@ implements PackerCommand
         private final Path sourcePath;
         private final Path targetPath;
         
-        private CopyFileException(
+        private UpdateFileException(
             Throwable cause,
             Path sourcePath,
             Path targetPath)

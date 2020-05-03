@@ -31,8 +31,6 @@ public final class PackerCommands
      *     be ignored.
      * @param invalidateOnFailure
      *     Whether files will be invalidated if command executions fails.
-     * @param keepCache
-     *     Whether cache directory should not be deleted.
      * @param templatePath
      *     Source directory relative path of template used for this build.
      * @param only
@@ -56,7 +54,6 @@ public final class PackerCommands
         Set<String> sourceFilePathSet,
         boolean changesNeeded,
         boolean invalidateOnFailure,
-        boolean keepCache,
         String templatePath,
         boolean force,
         Set<String> only,
@@ -70,7 +67,6 @@ public final class PackerCommands
             sourceFilePathSet,
             changesNeeded,
             invalidateOnFailure,
-            keepCache,
             templatePath,
             force,
             only,

@@ -71,14 +71,6 @@ extends AbstractPackerMojo
     private boolean invalidateOnFailure;
     
     /**
-     * Whether cache files must be keep.
-     */
-    @Parameter(
-        defaultValue="true"
-    )
-    private boolean keepCache;
-    
-    /**
      * Template path relative to source directory.
      */
     @Parameter(
@@ -144,7 +136,6 @@ extends AbstractPackerMojo
                 .collect(toSet()),
             changesNeeded,
             invalidateOnFailure,
-            keepCache,
             templatePath,
             force,
             Optional.ofNullable(only)
