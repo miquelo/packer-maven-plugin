@@ -87,16 +87,17 @@ extends AbstractPackerMojo
     private boolean force;
     
     /**
-     * Set of builder names that must be taken into account. Empty for all.
+     * Comma-separated builder names that must be taken into account. Empty for
+     * all.
      */
     @Parameter
-    private Set<String> only;
+    private String only;
     
     /**
-     * Set of builder names that must be ignored.
+     * Comma-separated builder names that must be ignored.
      */
     @Parameter
-    private Set<String> except;
+    private String except;
     
     /**
      * Variables for template.
@@ -139,9 +140,15 @@ extends AbstractPackerMojo
             templatePath,
             force,
             Optional.ofNullable(only)
-                .orElseGet(Collections::emptySet),
+                .map(str -> str.split(","))
+                .map(Stream::of)
+                .orElseGet(Stream::empty)
+                .collect(toSet()),
             Optional.ofNullable(except)
-                .orElseGet(Collections::emptySet),
+                .map(str -> str.split(","))
+                .map(Stream::of)
+                .orElseGet(Stream::empty)
+                .collect(toSet()),
             Optional.ofNullable(vars)
                 .map(Properties::entrySet)
                 .map(Collection::stream)
