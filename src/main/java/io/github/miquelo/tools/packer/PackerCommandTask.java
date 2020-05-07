@@ -212,22 +212,22 @@ implements RunnableFuture<PackerCommandResult>
                 if (errorCode == 0)
                 {
                     command.onSuccess();
-                    result.set(new PackerCommandResult());
+                    result.set(new PackerCommandResultImpl());
                 }
                 else
                 {
                     PackerCommandFailureCode failureCode =
                         command.mapFailureCode(errorCode);
                     command.onFailure(failureCode);
-                    result.set(new PackerCommandResult(failureCode));
+                    result.set(new PackerCommandResultImpl(failureCode));
                 }
             }
             else
-                result.set(new PackerCommandResult(true));
+                result.set(new PackerCommandResultImpl(true));
         }
         catch (PackerCommandException exception)
         {
-            result.set(new PackerCommandResult(exception));
+            result.set(new PackerCommandResultImpl(exception));
         }
         catch (InterruptedException | IOException | RuntimeException exception)
         {

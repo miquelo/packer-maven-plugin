@@ -3,8 +3,9 @@ package io.github.miquelo.tools.packer;
 import static java.util.Objects.requireNonNull;
 
 import java.time.Instant;
+import java.util.Optional;
 
-public class PackerOutputMessage
+public interface PackerOutputMessage
 {
     public static final String TYPE_UI = "ui";
     public static final String TYPE_ARTIFACT_COUNT = "artifact-count";
@@ -13,12 +14,24 @@ public class PackerOutputMessage
     public static final String DATA_UI_MESSAGE = "message";
     public static final String DATA_UI_ERROR = "error";
     
+    Instant getTimestamp();
+
+    Optional<String> getTarget();
+
+    String getType();
+
+    String[] getData();
+}
+
+class PackerOutputMessageImpl
+implements PackerOutputMessage
+{
     private final Instant timestamp;
     private final String target;
     private final String type;
     private final String data[];
     
-    public PackerOutputMessage(
+    public PackerOutputMessageImpl(
         Instant timestamp,
         String target,
         String type,
@@ -30,21 +43,25 @@ public class PackerOutputMessage
         this.data = requireNonNull(data);
     }
 
+    @Override
     public Instant getTimestamp()
     {
         return timestamp;
     }
 
-    public String getTarget()
+    @Override
+    public Optional<String> getTarget()
     {
-        return target;
+        return Optional.ofNullable(target);
     }
 
+    @Override
     public String getType()
     {
         return type;
     }
 
+    @Override
     public String[] getData()
     {
         return data;

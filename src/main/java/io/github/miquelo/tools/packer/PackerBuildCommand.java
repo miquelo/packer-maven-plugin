@@ -3,7 +3,6 @@ package io.github.miquelo.tools.packer;
 import static io.github.miquelo.tools.packer.PackerCommandFailureCode
     .FAILURE_ERROR;
 import static java.lang.String.format;
-import static java.lang.System.out;
 import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.delete;
@@ -141,7 +140,6 @@ implements PackerCommand
     public void onAbort()
     {
         invalidateWorkingFiles();
-        breakOnNewLine();
     }
     
     @Override
@@ -336,11 +334,6 @@ implements PackerCommand
                 sourceFile.toPath(),
                 targetFile.toPath());
         }
-    }
-    
-    private static void breakOnNewLine()
-    {
-        out.println();
     }
     
     private static class ToFileHashException

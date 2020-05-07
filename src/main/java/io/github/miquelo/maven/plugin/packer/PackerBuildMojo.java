@@ -2,7 +2,8 @@ package io.github.miquelo.maven.plugin.packer;
 
 import static io.github.miquelo.tools.packer.PackerCommands.buildCommand;
 import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_ERROR;
-import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_MESSAGE;
+import static io.github.miquelo.tools.packer.PackerOutputMessage
+    .DATA_UI_MESSAGE;
 import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_SAY;
 import static io.github.miquelo.tools.packer.PackerOutputMessage.TYPE_UI;
 import static java.util.stream.Collectors.toMap;
@@ -204,13 +205,7 @@ extends AbstractPackerMojo
         String str,
         Consumer<String> lineConsumer)
     {
-        Stream.of(str.split("\\\\n"))
-            .map(PackerBuildMojo::replacePackerComma)
+        Stream.of(str.split("\n"))
             .forEach(line -> lineConsumer.accept(line));
-    }
-    
-    private static String replacePackerComma(String str)
-    {
-        return str.replace("%!(PACKER_COMMA)", ",");
     }
 }

@@ -1,11 +1,9 @@
 package io.github.miquelo.tools.packer;
 
 import static java.lang.Long.parseLong;
-import static java.lang.ProcessBuilder.Redirect.INHERIT;
+import static java.lang.ProcessBuilder.Redirect.PIPE;
 import static java.time.Instant.ofEpochMilli;
-import static java.util.Arrays.copyOfRange;
 import static java.util.concurrent.Executors.newFixedThreadPool;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Stream.concat;
 
@@ -19,16 +17,15 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 class PackerExecution
 {
-    private static final long MESSAGE_CONSUMER_SERVICE_WAIT_TIMEOUT = 2;
-    private static final TimeUnit MESSAGE_CONSUMER_SERVICE_WAIT_UNIT = SECONDS;
-    
-    private final ExecutorService messageConsumerService;
     private final Process process;
+    private final PackerOutputReaderTask outputReaderTask;
     
     PackerExecution(
         Consumer<PackerOutputMessage> messageConsumer,
@@ -39,18 +36,19 @@ class PackerExecution
         TimeUnit waitUnit)
     throws IOException, InterruptedException
     {
-        messageConsumerService = newFixedThreadPool(1);
+        ExecutorService messageConsumerService = newFixedThreadPool(1);
         process = new ProcessBuilder(concat(
             Stream.of("packer", "-machine-readable", name),
             args.stream())
                 .map(Object::toString)
                 .collect(toList()))
             .directory(workingDir)
-            .redirectOutput(INHERIT)
+            .redirectOutput(PIPE)
             .start();
-        messageConsumerService.submit(() -> messageConsumerReader(
+        outputReaderTask = new PackerOutputReaderTask(
             messageConsumer,
-            process.getInputStream()));
+            process.getInputStream());
+        messageConsumerService.execute(outputReaderTask);
     }
     
     public int errorCode(TimeoutHandler timeoutHandler)
@@ -62,43 +60,53 @@ class PackerExecution
                 timeoutHandler.getTimeout(),
                 timeoutHandler.getUnit()))
             {
-                awaitMessageConsumerServiceTermination();
+                outputReaderTask.awaitTermination();
                 return process.exitValue();
             }
             process.destroy();
-            awaitMessageConsumerServiceTermination();
+            outputReaderTask.awaitTermination();
             throw new TimeoutException();
         }
         int code = process.waitFor();
-        awaitMessageConsumerServiceTermination();
+        outputReaderTask.awaitTermination();
         return code;
     }
     
     public boolean interrupt()
     {
         process.destroy();
+        outputReaderTask.awaitTermination();
         return !process.isAlive();
     }
+}
+
+class PackerOutputReaderTask
+implements Runnable
+{
+    private final Consumer<PackerOutputMessage> messageConsumer;
+    private final BufferedReader reader;
+    private final Lock terminationLock;
     
-    private void awaitMessageConsumerServiceTermination()
-    throws InterruptedException
-    {
-        messageConsumerService.awaitTermination(
-            MESSAGE_CONSUMER_SERVICE_WAIT_TIMEOUT,
-            MESSAGE_CONSUMER_SERVICE_WAIT_UNIT);
-    }
-    
-    private static void messageConsumerReader(
+    PackerOutputReaderTask(
         Consumer<PackerOutputMessage> messageConsumer,
         InputStream input)
     {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-            input)))
+        this.messageConsumer = messageConsumer;
+        reader = new BufferedReader(new InputStreamReader(input));
+        terminationLock = new ReentrantLock();
+    }
+
+    @Override
+    public void run()
+    {
+        try
         {
+            terminationLock.lock();
+            
             String line = reader.readLine();
             while (line != null)
             {
-                messageConsumer.accept(parseMessage(line));
+                messageAccept(line.split(",", -1));
                 line = reader.readLine();
             }
         }
@@ -106,15 +114,52 @@ class PackerExecution
         {
             throw new UncheckedIOException(exception);
         }
+        finally
+        {
+            terminationLock.unlock();
+        }
     }
     
-    private static PackerOutputMessage parseMessage(String line)
+    void awaitTermination()
     {
-        String[] parts = line.split(",", -1);
-        return new PackerOutputMessage(
-            ofEpochMilli(parseLong(parts[0]) * 1000L),
-            parts[1],
-            parts[2],
-            copyOfRange(parts, 3, parts.length));
-  }
+        try
+        {
+            terminationLock.lock();
+        }
+        finally
+        {
+            terminationLock.unlock();
+        }
+    }
+    
+    private void messageAccept(String[] parts)
+    {
+        try
+        {
+            messageConsumer.accept(new PackerOutputMessageImpl(
+                ofEpochMilli(parseLong(parts[0]) * 1000L),
+                parts[1],
+                parts[2],
+                formatData(parts, 3)));
+        }
+        catch (RuntimeException exception)
+        {
+            // Ignore malformed output...
+        }
+    }
+    
+    private static String[] formatData(String[] parts, int from)
+    {
+        String[] data = new String[parts.length - from];
+        for (int i = from; i < parts.length; ++i)
+            data[i - from] = formatDataPart(parts[i]);
+        return data;
+    }
+    
+    private static String formatDataPart(String part)
+    {
+        return part.replace("%!(PACKER_COMMA)", ",")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r");
+    }
 }

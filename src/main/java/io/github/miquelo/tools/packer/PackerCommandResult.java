@@ -21,40 +21,8 @@ import static java.util.Objects.requireNonNull;
  * @see PackerCommandTask#get()
  * @see PackerCommandTask#get(long, java.util.concurrent.TimeUnit)
  */
-public class PackerCommandResult
+public interface PackerCommandResult
 {
-    private final boolean ignored;
-    private final PackerCommandException exception;
-    private final PackerCommandFailureCode failureCode;
-    
-    PackerCommandResult()
-    {
-        ignored = false;
-        exception = null;
-        failureCode = null;
-    }
-    
-    PackerCommandResult(PackerCommandException exception)
-    {
-        ignored = false;
-        this.exception = requireNonNull(exception);
-        failureCode = null;
-    }
-    
-    PackerCommandResult(PackerCommandFailureCode failureCode)
-    {
-        ignored = false;
-        exception = null;
-        this.failureCode = requireNonNull(failureCode);
-    }
-    
-    PackerCommandResult(boolean ignored)
-    {
-        this.ignored = true;
-        exception = null;
-        failureCode = null;
-    }
-    
     /**
      * Check this result was finished successfully.
      * 
@@ -66,6 +34,46 @@ public class PackerCommandResult
      * @throws PackerCommandFailureException
      *     If Packer failure was occurred.
      */
+    boolean success()
+    throws PackerCommandException, PackerCommandFailureException;
+}
+
+class PackerCommandResultImpl
+implements PackerCommandResult
+{
+    private final boolean ignored;
+    private final PackerCommandException exception;
+    private final PackerCommandFailureCode failureCode;
+    
+    PackerCommandResultImpl()
+    {
+        ignored = false;
+        exception = null;
+        failureCode = null;
+    }
+    
+    PackerCommandResultImpl(PackerCommandException exception)
+    {
+        ignored = false;
+        this.exception = requireNonNull(exception);
+        failureCode = null;
+    }
+    
+    PackerCommandResultImpl(PackerCommandFailureCode failureCode)
+    {
+        ignored = false;
+        exception = null;
+        this.failureCode = requireNonNull(failureCode);
+    }
+    
+    PackerCommandResultImpl(boolean ignored)
+    {
+        this.ignored = true;
+        exception = null;
+        failureCode = null;
+    }
+    
+    @Override
     public boolean success()
     throws PackerCommandException, PackerCommandFailureException
     {
