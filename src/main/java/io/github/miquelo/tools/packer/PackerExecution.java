@@ -1,6 +1,7 @@
 package io.github.miquelo.tools.packer;
 
 import static java.lang.Long.parseLong;
+import static java.lang.ProcessBuilder.Redirect.INHERIT;
 import static java.time.Instant.ofEpochMilli;
 import static java.util.Arrays.copyOfRange;
 import static java.util.concurrent.Executors.newFixedThreadPool;
@@ -45,6 +46,7 @@ class PackerExecution
                 .map(Object::toString)
                 .collect(toList()))
             .directory(workingDir)
+            .redirectOutput(INHERIT)
             .start();
         messageConsumerService.submit(() -> messageConsumerReader(
             messageConsumer,
