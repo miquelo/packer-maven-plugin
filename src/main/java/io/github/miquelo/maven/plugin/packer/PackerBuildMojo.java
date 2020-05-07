@@ -143,11 +143,15 @@ extends AbstractPackerMojo
                 .map(str -> str.split(","))
                 .map(Stream::of)
                 .orElseGet(Stream::empty)
+                .map(String::trim)
+                .filter(str -> !str.isEmpty())
                 .collect(toSet()),
             Optional.ofNullable(except)
                 .map(str -> str.split(","))
                 .map(Stream::of)
                 .orElseGet(Stream::empty)
+                .map(String::trim)
+                .filter(str -> !str.isEmpty())
                 .collect(toSet()),
             Optional.ofNullable(vars)
                 .map(Properties::entrySet)
