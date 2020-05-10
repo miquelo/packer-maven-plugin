@@ -1,9 +1,11 @@
 package io.github.miquelo.tools.packer;
 
+import static io.github.miquelo.tools.packer.PackerExecution
+    .SUPPORTED_LAUNCHERS;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.DAYS;
+import static java.util.concurrent.Executors.newFixedThreadPool;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Stream.concat;
 
@@ -29,10 +31,7 @@ import java.util.stream.Stream;
 public final class PackerCommandTask
 implements RunnableFuture<PackerCommandResult>
 {
-    private static final long EXECUTION_WAIT_TIMEOUT = 2;
-    private static final TimeUnit EXECUTION_WAIT_UNIT = DAYS;
-    
-    private final PackerExecutionStarter executionStarter;
+    private final PackerExecutionBuilder executionBuilder;
     private final PackerCommandLogger logger;
     private final Consumer<PackerOutputMessage> messageConsumer;
     private final PackerCommand command;
@@ -63,19 +62,19 @@ implements RunnableFuture<PackerCommandResult>
         PackerCommand command)
     {
         this(
-            PackerCommandTask::executionStart,
+            PackerCommandTask::executionBuild,
             logger,
             messageConsumer,
             command);
     }
     
     PackerCommandTask(
-        PackerExecutionStarter executionStarter,
+        PackerExecutionBuilder executionBuilder,
         PackerCommandLogger logger,
         Consumer<PackerOutputMessage> messageConsumer,
         PackerCommand command)
     {
-        this.executionStarter = requireNonNull(executionStarter);
+        this.executionBuilder = requireNonNull(executionBuilder);
         this.logger = requireNonNull(logger);
         this.messageConsumer = requireNonNull(messageConsumer);
         this.command = requireNonNull(command);
@@ -95,7 +94,7 @@ implements RunnableFuture<PackerCommandResult>
     @Override
     public void run()
     {
-        complete(TimeoutHandlerIrrelevant.INSTANCE, true);
+        complete(IrrelevantTimeoutHandler.INSTANCE, true);
     }
     
     /**
@@ -126,7 +125,7 @@ implements RunnableFuture<PackerCommandResult>
     public PackerCommandResult get()
     throws InterruptedException, ExecutionException
     {
-        complete(TimeoutHandlerIrrelevant.INSTANCE, false);
+        complete(IrrelevantTimeoutHandler.INSTANCE, false);
         if (executionException.get() != null)
             throw executionException.get();
         return resultGet();
@@ -140,7 +139,7 @@ implements RunnableFuture<PackerCommandResult>
     public PackerCommandResult get(long timeout, TimeUnit unit)
     throws InterruptedException, ExecutionException, TimeoutException
     {
-        TimeoutHandler timeoutHandler = new TimeoutHandlerRelevant(
+        TimeoutHandler timeoutHandler = new RelevantTimeoutHandler(
             timeout,
             unit);
         complete(timeoutHandler, false);
@@ -157,12 +156,11 @@ implements RunnableFuture<PackerCommandResult>
     @Override
     public boolean cancel(boolean mayInterruptIfRunning)
     {
-        if (cancelled.get()
-           || execution.get() == null
-           || executionException.get() != null)
-            return false;
-        
-        if (mayInterruptIfRunning)
+        if (cancelled.get())
+            return true;
+        if (execution.get() != null &&
+            executionException.get() == null &&
+            mayInterruptIfRunning)
             cancelled.set(execution.get().interrupt());
         else
             cancelled.set(true);
@@ -200,15 +198,15 @@ implements RunnableFuture<PackerCommandResult>
                         .collect(joining(", ")),
                     workingDir.getAbsolutePath()));
                 
-                execution.set(executionStarter.start(
+                execution.set(executionBuilder.build(
                     messageConsumer,
                     workingDir,
                     command.getName(),
-                    command.getArguments(),
-                    EXECUTION_WAIT_TIMEOUT,
-                    EXECUTION_WAIT_UNIT));
+                    command.getArguments()));
                 int errorCode = execution.get().errorCode(
                     timeoutHandler.checkIt());
+                execution.set(null);
+                
                 if (errorCode == 0)
                 {
                     command.onSuccess();
@@ -285,13 +283,11 @@ implements RunnableFuture<PackerCommandResult>
         return new File(System.getProperty("user.dir"));
     }  
     
-    private static PackerExecution executionStart(
+    private static PackerExecution executionBuild(
         Consumer<PackerOutputMessage> messageConsumer,
         File workingDir,
         String name,
-        List<Object> args,
-        long waitTimeout,
-        TimeUnit waitUnit)
+        List<Object> args)
     throws IOException, InterruptedException
     {
     	return new PackerExecution(
@@ -299,20 +295,18 @@ implements RunnableFuture<PackerCommandResult>
     	    workingDir,
     	    name,
     	    args,
-    	    waitTimeout,
-    	    waitUnit);
+    	    SUPPORTED_LAUNCHERS,
+    	    newFixedThreadPool(1));
     }
 }
 
 @FunctionalInterface
-interface PackerExecutionStarter
+interface PackerExecutionBuilder
 {
-    PackerExecution start(
+    PackerExecution build(
         Consumer<PackerOutputMessage> messageConsumer,
         File workingDir,
         String name,
-        List<Object> args,
-        long waitTimeout,
-        TimeUnit waitUnit)
+        List<Object> args)
     throws IOException, InterruptedException;
 }

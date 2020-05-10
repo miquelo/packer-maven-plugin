@@ -10,8 +10,25 @@
     </bannerLeft>
     
     <body>
-        <menu ref="modules"/>
+    
+        <head>
+            <![CDATA[<link rel="stylesheet" href="${relativePath}/css/site-fix.css"/>]]>
+        </head>
+        
+        <menu name="Overview">
+            <item name="Introduction" href="index.html"/>
+            <item name="Goals" href="plugin-info.html"/>
+            <item name="Usage" href="usage.html"/>
+            <!-- According to https://issues.apache.org/jira/browse/MNGSITE-152 -->
+            <item name="License" href="https://www.gnu.org/licenses/"/>
+	    </menu>
+	    
+        <menu name="Examples">
+            <item name="Creating an image" href="examples/creating-image.html"/>
+        </menu>
+        
         <menu ref="reports"/>
+        
     </body>
     
     <skin>
@@ -22,7 +39,7 @@
     
     <custom>
         <fluidoSkin>
-            <topBarEnabled>true</topBarEnabled>
+            <topBarEnabled>false</topBarEnabled>
             <sideBarEnabled>true</sideBarEnabled>
         </fluidoSkin>
     </custom>

@@ -1,4 +1,4 @@
-package io.github.miquelo.tools.packer;
+package io.github.miquelo.tools.packer.commands;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -14,18 +14,18 @@ import java.security.Provider;
  * It adds the ability to throw a {@link NoSuchAlgorithmException} when creation
  * fails for that reason.
  * 
- * @see PackerCommands#buildCommand(MessageDigestCreator,
- *                                  java.io.File,
- *                                  java.io.File,
- *                                  java.util.Set,
- *                                  boolean,
- *                                  boolean,
- *                                  String,
- *                                  boolean,
- *                                  java.util.Set,
- *                                  java.util.Set,
- *                                  java.util.Map,
- *                                  java.util.Set)
+ * @see PackerBuildCommand#PackerBuildCommand(MessageDigestCreator,
+ *                                            java.io.File,
+ *                                            java.io.File,
+ *                                            java.util.Set,
+ *                                            boolean,
+ *                                            boolean,
+ *                                            String,
+ *                                            boolean,
+ *                                            java.util.Set,
+ *                                            java.util.Set,
+ *                                            java.util.Map,
+ *                                            java.util.Set)
  */
 @FunctionalInterface
 public interface MessageDigestCreator

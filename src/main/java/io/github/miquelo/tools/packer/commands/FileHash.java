@@ -1,4 +1,4 @@
-package io.github.miquelo.tools.packer;
+package io.github.miquelo.tools.packer.commands;
 
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;

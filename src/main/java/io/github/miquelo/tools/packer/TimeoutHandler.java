@@ -1,7 +1,6 @@
 package io.github.miquelo.tools.packer;
 
 import static java.time.Duration.between;
-import static java.time.Instant.now;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import java.time.Instant;
@@ -9,6 +8,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalUnit;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 /**
  * Handler for propagating and controlling execution timeouts.
@@ -51,23 +51,29 @@ public interface TimeoutHandler
     throws TimeoutException;
 }
 
-class TimeoutHandlerRelevant
+class RelevantTimeoutHandler
 implements TimeoutHandler
 {
-    private final Instant begin;
     private final long timeout;
     private final TimeUnit unit;
+    private final Instant begin;
+    private final Supplier<Instant> checkItBeginSupplier;
     
-    TimeoutHandlerRelevant(long timeout, TimeUnit unit)
+    RelevantTimeoutHandler(long timeout, TimeUnit unit)
     {
-        this(now(), timeout, unit);
+        this(timeout, unit, Instant::now, Instant::now);
     }
     
-    private TimeoutHandlerRelevant(Instant begin, long timeout, TimeUnit unit)
+    RelevantTimeoutHandler(
+        long timeout,
+        TimeUnit unit,
+        Supplier<Instant> beginSupplier,
+        Supplier<Instant> checkItBeginSupplier)
     {
-        this.begin = begin;
         this.timeout = timeout;
         this.unit = unit;
+        this.begin = beginSupplier.get();
+        this.checkItBeginSupplier = checkItBeginSupplier;
     }
 
     @Override
@@ -92,17 +98,17 @@ implements TimeoutHandler
     public TimeoutHandler checkIt()
     throws TimeoutException
     {
-        Instant currentBegin = now();
+        Instant currentBegin = checkItBeginSupplier.get();
         Instant timedout = begin.plus(timeout, toTemporalUnit(unit));
         if (currentBegin.isBefore(timedout))
-            return new TimeoutHandlerRelevant(
-                currentBegin,
+            return new RelevantTimeoutHandler(
                 between(currentBegin, timedout).toNanos(),
                 NANOSECONDS);
+      
         throw new TimeoutException();
     }
 
-    private static TemporalUnit toTemporalUnit(TimeUnit unit)
+    static TemporalUnit toTemporalUnit(TimeUnit unit)
     {
         switch (unit)
         {
@@ -130,12 +136,12 @@ implements TimeoutHandler
     }
 }
 
-class TimeoutHandlerIrrelevant
+class IrrelevantTimeoutHandler
 implements TimeoutHandler
 {
-    static final TimeoutHandler INSTANCE = new TimeoutHandlerIrrelevant();
+    static final TimeoutHandler INSTANCE = new IrrelevantTimeoutHandler();
     
-    private TimeoutHandlerIrrelevant()
+    private IrrelevantTimeoutHandler()
     {
     }
     

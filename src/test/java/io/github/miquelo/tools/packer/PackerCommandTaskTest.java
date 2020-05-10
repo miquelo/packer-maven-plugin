@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -18,8 +19,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class PackerCommandTaskTest
 {
+    private static final boolean ANT_MAY_INTERRUPT_IF_RUNNING = false;
+
     @Mock
-    private PackerExecutionStarter executionStarter;
+    private PackerExecutionBuilder executionBuilder;
 
     @Mock
     private PackerCommandLogger logger;
@@ -37,7 +40,7 @@ public class PackerCommandTaskTest
     
     public PackerCommandTaskTest()
     {
-        executionStarter = null;
+        executionBuilder = null;
         logger = null;
         messageConsumer = null;
         command = null;
@@ -49,7 +52,7 @@ public class PackerCommandTaskTest
     public void setUp()
     {
         commandTask = new PackerCommandTask(
-            executionStarter,
+            executionBuilder,
             logger,
             messageConsumer,
             command);
@@ -58,15 +61,17 @@ public class PackerCommandTaskTest
     @Test
     public void isNotDoneByDefault()
     {
-        assertThat(commandTask.isDone())
-            .isFalse();
+        boolean done = commandTask.isDone();
+        
+        assertThat(done).isFalse();
     }
     
     @Test
     public void isNotCancelledByDefault()
     {
-        assertThat(commandTask.isCancelled())
-            .isFalse();
+        boolean cancelled = commandTask.isCancelled();
+        
+        assertThat(cancelled).isFalse();
     }
     
     @Test
@@ -87,7 +92,7 @@ public class PackerCommandTaskTest
     }
     
     @Test
-    public void throwAlreadyRunningWhenRunMoteThanOnce()
+    public void throwAlreadyRunningWhenRunMoreThanOnce()
     throws Exception
     {
         commandTask.run();
@@ -97,5 +102,34 @@ public class PackerCommandTaskTest
         assertThat(exception)
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("Already started...");
+    }
+    
+    @Test
+    public void throwCancelledWhenRunAlreadyCancelled()
+    {
+        commandTask.cancel(ANT_MAY_INTERRUPT_IF_RUNNING);
+        
+        Throwable exception = catchThrowable(() -> commandTask.run());
+        
+        assertThat(exception)
+            .isInstanceOf(CancellationException.class);
+    }
+    
+    @Test
+    public void onlyAwaitValueWhenGettingAlreadyCompleting()
+    throws Exception
+    {
+        when(command.init(any(), any()))
+            .thenReturn(false);
+        commandTask.run();
+        
+        commandTask.get();
+        
+        verify(command, never())
+            .onSuccess();
+        verify(command, never())
+            .onFailure(any());
+        verify(command, never())
+            .onAbort();
     }
 }

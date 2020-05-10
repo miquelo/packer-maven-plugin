@@ -1,4 +1,4 @@
-package io.github.miquelo.tools.packer;
+package io.github.miquelo.tools.packer.commands;
 
 import static io.github.miquelo.tools.packer.PackerCommandFailureCode
     .FAILURE_ERROR;
@@ -7,6 +7,7 @@ import static java.nio.file.Files.copy;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Files.delete;
 import static java.util.Comparator.comparing;
+import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
@@ -28,13 +29,23 @@ import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
-class PackerBuildCommand
+import io.github.miquelo.tools.packer.PackerCommand;
+import io.github.miquelo.tools.packer.PackerCommandException;
+import io.github.miquelo.tools.packer.PackerCommandFailureCode;
+import io.github.miquelo.tools.packer.PackerCommandLogger;
+import io.github.miquelo.tools.packer.TimeoutHandler;
+
+/**
+ * Packer {@code build} command.
+ */
+public class PackerBuildCommand
 implements PackerCommand
 {
     private static final String COMMAND_NAME = "build";
     
-    private static final String CHECKSUM_ALGORITHM = "SHA-256";
     private static final String CHECKSUM_FILE_NAME = ".checksum";
+    
+    static final String CHECKSUM_ALGORITHM = "SHA-256";
     
     private final File sourceDir;
     private final File workingDir;
@@ -43,7 +54,37 @@ implements PackerCommand
     private final boolean changesNeeded;
     private final boolean invalidateOnFailure;
     private final List<Object> arguments;
+    private final BufferedReaderBuilder bufferedReaderBuilder;
     
+    /**
+     * Packer {@code build} command complete constructor.
+     * 
+     * @param digestCreator
+     *     Message digest used to obtain source files hash.
+     * @param sourceDir
+     *     Directory where source files are located.
+     * @param workingDir
+     *     Directory where build command will work at.
+     * @param sourceFilePathSet
+     *     Selected source files.
+     * @param changesNeeded
+     *     Whether changes on source files are needed for this command to don't
+     *     be ignored.
+     * @param invalidateOnFailure
+     *     Whether files will be invalidated if command executions fails.
+     * @param templatePath
+     *     Source directory relative path of template used for this build.
+     * @param only
+     *     Set of builder names that must be taken into account. Empty for all.
+     * @param except
+     *     Set of builder names that must be ignored.
+     * @param force
+     *     Whether execution should overwrite Packer output directory.
+     * @param vars
+     *     Variables used for this build.
+     * @param varFiles
+     *     Variable files used for this build.
+     */
     public PackerBuildCommand(
         MessageDigestCreator digestCreator,
         File sourceDir,
@@ -57,6 +98,70 @@ implements PackerCommand
         Set<String> except,
         Map<String, Object> vars,
         Set<String> varFiles)
+    {
+        this(
+            digestCreator,
+            sourceDir,
+            workingDir,
+            sourceFilePathSet,
+            changesNeeded,
+            invalidateOnFailure,
+            templatePath,
+            force,
+            only,
+            except,
+            vars,
+            varFiles,
+            CHECKSUM_ALGORITHM);
+    }
+    
+    PackerBuildCommand(
+        MessageDigestCreator digestCreator,
+        File sourceDir,
+        File workingDir,
+        Set<String> sourceFilePathSet,
+        boolean changesNeeded,
+        boolean invalidateOnFailure,
+        String templatePath,
+        boolean force,
+        Set<String> only,
+        Set<String> except,
+        Map<String, Object> vars,
+        Set<String> varFiles,
+        String checksumAlgorithm)
+    {
+        this(
+            digestCreator,
+            sourceDir,
+            workingDir,
+            sourceFilePathSet,
+            changesNeeded,
+            invalidateOnFailure,
+            templatePath,
+            force,
+            only,
+            except,
+            vars,
+            varFiles,
+            checksumAlgorithm,
+            PackerBuildCommand::bufferedReaderBuild);
+    }
+    
+    PackerBuildCommand(
+        MessageDigestCreator digestCreator,
+        File sourceDir,
+        File workingDir,
+        Set<String> sourceFilePathSet,
+        boolean changesNeeded,
+        boolean invalidateOnFailure,
+        String templatePath,
+        boolean force,
+        Set<String> only,
+        Set<String> except,
+        Map<String, Object> vars,
+        Set<String> varFiles,
+        String checksumAlgorithm,
+        BufferedReaderBuilder bufferedReaderBuilder)
     {
         if (!sourceDir.isDirectory())
             throw new IllegalArgumentException(format(
@@ -72,6 +177,7 @@ implements PackerCommand
         checksumFile = new File(this.workingDir, CHECKSUM_FILE_NAME);
         sourceFileHashList = toSourceFileHashList(
             digestCreator,
+            checksumAlgorithm,
             this.sourceDir,
             sourceFilePathSet);
         this.changesNeeded = changesNeeded;
@@ -83,6 +189,7 @@ implements PackerCommand
             except,
             vars,
             varFiles);
+        this.bufferedReaderBuilder = requireNonNull(bufferedReaderBuilder);
     }
     
     @Override
@@ -151,8 +258,7 @@ implements PackerCommand
     private boolean hasChanges()
     throws PackerCommandException
     {
-        try (BufferedReader reader = new BufferedReader(new FileReader(
-            checksumFile)))
+        try (BufferedReader reader = bufferedReaderBuilder.build(checksumFile))
         {
             List<FileHash> result = new ArrayList<>();
             String line = reader.readLine();
@@ -170,7 +276,7 @@ implements PackerCommand
         catch (IOException exception)
         {
             throw new PackerCommandException(format(
-                "Unable to retrieve previous file hash list"),
+                "Unable to retrieve file hash list"),
                 exception);
         }
     }
@@ -188,10 +294,6 @@ implements PackerCommand
         {
             if (!checksumFile.exists())
                 checksumFile.createNewFile();
-            if (!checksumFile.isFile())
-                throw new PackerCommandException(format(
-                    "Checksum %s is not a file",
-                    checksumFile.getAbsolutePath()));
         }
         catch (IOException exception)
         {
@@ -236,6 +338,7 @@ implements PackerCommand
     
     private static List<FileHash> toSourceFileHashList(
         MessageDigestCreator digestCreator,
+        String checksumAlgorith,
         File sourceDir,
         Set<String> sourceFilePathSet)
     {
@@ -244,6 +347,7 @@ implements PackerCommand
             return sourceFilePathSet.stream()
                 .map(sourceFilePath -> toFileHash(
                     digestCreator,
+                    checksumAlgorith,
                     sourceDir,
                     sourceFilePath))
                 .sorted(comparing(FileHash::getRelativePath))
@@ -294,6 +398,7 @@ implements PackerCommand
     
     private static FileHash toFileHash(
         MessageDigestCreator digestCreator,
+        String checksumAlgorithm,
         File baseDir,
         String relativePath)
     {
@@ -302,7 +407,7 @@ implements PackerCommand
             return FileHash.digest(
                 MessageDigest::getInstance,
                 baseDir,
-                CHECKSUM_ALGORITHM,
+                checksumAlgorithm,
                 relativePath);
         }
         catch (NoSuchAlgorithmException | IOException exception)
@@ -334,6 +439,12 @@ implements PackerCommand
                 sourceFile.toPath(),
                 targetFile.toPath());
         }
+    }
+    
+    private static BufferedReader bufferedReaderBuild(File file)
+    throws IOException
+    {
+        return new BufferedReader(new FileReader(file));
     }
     
     private static class ToFileHashException
@@ -368,4 +479,11 @@ implements PackerCommand
             this.targetPath = targetPath;
         }
     }
+}
+
+@FunctionalInterface
+interface BufferedReaderBuilder
+{
+    BufferedReader build(File file)
+    throws IOException;
 }

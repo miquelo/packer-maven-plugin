@@ -1,6 +1,5 @@
 package io.github.miquelo.maven.plugin.packer;
 
-import static io.github.miquelo.tools.packer.PackerCommands.buildCommand;
 import static io.github.miquelo.tools.packer.PackerOutputMessage.DATA_UI_ERROR;
 import static io.github.miquelo.tools.packer.PackerOutputMessage
     .DATA_UI_MESSAGE;
@@ -28,6 +27,7 @@ import org.apache.maven.shared.model.fileset.util.FileSetManager;
 
 import io.github.miquelo.tools.packer.PackerCommand;
 import io.github.miquelo.tools.packer.PackerOutputMessage;
+import io.github.miquelo.tools.packer.commands.PackerBuildCommand;
 
 /**
  * Run a Packer build command.
@@ -130,7 +130,7 @@ extends AbstractPackerMojo
     @Override
     protected PackerCommand command()
     {
-        return buildCommand(
+        return new PackerBuildCommand(
             MessageDigest::getInstance,
             new File(fileSet.getDirectory()),
             new File(fileSet.getOutputDirectory()),

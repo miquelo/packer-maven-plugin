@@ -1,21 +1,15 @@
 package io.github.miquelo.tools.packer;
 
 import static java.lang.Long.parseLong;
-import static java.lang.ProcessBuilder.Redirect.PIPE;
 import static java.time.Instant.ofEpochMilli;
-import static java.util.concurrent.Executors.newFixedThreadPool;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Stream.concat;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -24,6 +18,11 @@ import java.util.stream.Stream;
 
 class PackerExecution
 {
+    public static final ProcessLauncher[] SUPPORTED_LAUNCHERS = {
+        new UnixProcessLauncher(),
+        new DefaultProcessLauncher()
+    };
+    
     private final Process process;
     private final PackerOutputReaderTask outputReaderTask;
     
@@ -32,23 +31,19 @@ class PackerExecution
         File workingDir,
         String name,
         List<Object> args,
-        long waitTimeout,
-        TimeUnit waitUnit)
+        ProcessLauncher[] launchers,
+        Executor messageConsumerExecutor)
     throws IOException, InterruptedException
     {
-        ExecutorService messageConsumerService = newFixedThreadPool(1);
-        process = new ProcessBuilder(concat(
-            Stream.of("packer", "-machine-readable", name),
-            args.stream())
-                .map(Object::toString)
-                .collect(toList()))
-            .directory(workingDir)
-            .redirectOutput(PIPE)
-            .start();
+        process = Stream.of(launchers)
+            .filter(ProcessLauncher::compatible)
+            .findAny()
+            .orElseThrow(IllegalArgumentException::new)
+            .launch(workingDir, name, args);
         outputReaderTask = new PackerOutputReaderTask(
             messageConsumer,
             process.getInputStream());
-        messageConsumerService.execute(outputReaderTask);
+        messageConsumerExecutor.execute(outputReaderTask);
     }
     
     public int errorCode(TimeoutHandler timeoutHandler)
@@ -103,16 +98,9 @@ implements Runnable
         {
             terminationLock.lock();
             
-            String line = reader.readLine();
-            while (line != null)
-            {
-                messageAccept(line.split(",", -1));
-                line = reader.readLine();
-            }
-        }
-        catch (IOException exception)
-        {
-            throw new UncheckedIOException(exception);
+            reader.lines()
+                .map(PackerOutputReaderTask::messageParts)
+                .forEach(this::messageAccept);
         }
         finally
         {
@@ -148,6 +136,11 @@ implements Runnable
         }
     }
     
+    private static String[] messageParts(String message)
+    {
+        return message.split(",", -1);
+    }
+    
     private static String[] formatData(String[] parts, int from)
     {
         String[] data = new String[parts.length - from];
@@ -162,4 +155,11 @@ implements Runnable
             .replace("\\n", "\n")
             .replace("\\r", "\r");
     }
+}
+
+interface PackerOutputReaderTaskFactory
+{
+    PackerOutputReaderTask getTask(
+        Consumer<PackerOutputMessage> messageConsumer,
+        InputStream input);
 }

@@ -1,0 +1,9 @@
+${project.name}
+
+  This plugin provides the capability of running
+  {{{https://www.packer.io/}Packer}} commands.
+
+* Goals overview
+
+  * {{{./build-mojo.html}packer:build}} build a machine image.
+  

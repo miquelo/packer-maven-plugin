@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Try to do it through Maven
+# https://maven.apache.org/guides/mini..
+# ../guide-site.html#github-pages-apache-svnpubsub-gitpubsub-deployment
+
 set -eu
 
 REPO_URI="https://x-access-token:${GITHUB_TOKEN}@github.com"
@@ -23,7 +27,6 @@ rm -rf * .github/ .gitignore
 mv .tmp/* .
 rm -rf .tmp
 touch .nojekyll
-cp project-reports.html index.html
 git add --all .
 
 git commit -m "Updating GitHub Pages"

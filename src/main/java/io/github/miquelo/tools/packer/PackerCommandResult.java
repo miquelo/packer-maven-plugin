@@ -68,7 +68,7 @@ implements PackerCommandResult
     
     PackerCommandResultImpl(boolean ignored)
     {
-        this.ignored = true;
+        this.ignored = ignored;
         exception = null;
         failureCode = null;
     }
