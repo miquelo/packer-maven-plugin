@@ -206,6 +206,6 @@ extends AbstractPackerMojo
         Consumer<String> lineConsumer)
     {
         Stream.of(str.split("\n"))
-            .forEach(line -> lineConsumer.accept(line));
+            .forEach(lineConsumer::accept);
     }
 }
