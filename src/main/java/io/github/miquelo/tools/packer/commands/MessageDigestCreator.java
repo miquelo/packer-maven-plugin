@@ -14,18 +14,7 @@ import java.security.Provider;
  * It adds the ability to throw a {@link NoSuchAlgorithmException} when creation
  * fails for that reason.
  * 
- * @see PackerBuildCommand#PackerBuildCommand(MessageDigestCreator,
- *                                            java.io.File,
- *                                            java.io.File,
- *                                            java.util.Set,
- *                                            boolean,
- *                                            boolean,
- *                                            String,
- *                                            boolean,
- *                                            java.util.Set,
- *                                            java.util.Set,
- *                                            java.util.Map,
- *                                            java.util.Set)
+ * @see MessageDigest#getInstance(String)
  */
 @FunctionalInterface
 public interface MessageDigestCreator

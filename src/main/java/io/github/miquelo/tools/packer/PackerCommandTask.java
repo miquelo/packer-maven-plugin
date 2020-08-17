@@ -32,6 +32,7 @@ public final class PackerCommandTask
 implements RunnableFuture<PackerCommandResult>
 {
     private final PackerExecutionBuilder executionBuilder;
+    private final TimeoutHandlerBuilder timeoutHandlerBuilder;
     private final PackerCommandLogger logger;
     private final Consumer<PackerOutputMessage> messageConsumer;
     private final PackerCommand command;
@@ -63,6 +64,7 @@ implements RunnableFuture<PackerCommandResult>
     {
         this(
             PackerCommandTask::executionBuild,
+            RelevantTimeoutHandler::new,
             logger,
             messageConsumer,
             command);
@@ -70,11 +72,13 @@ implements RunnableFuture<PackerCommandResult>
     
     PackerCommandTask(
         PackerExecutionBuilder executionBuilder,
+        TimeoutHandlerBuilder timeoutHandlerBuilder,
         PackerCommandLogger logger,
         Consumer<PackerOutputMessage> messageConsumer,
         PackerCommand command)
     {
         this.executionBuilder = requireNonNull(executionBuilder);
+        this.timeoutHandlerBuilder = requireNonNull(timeoutHandlerBuilder);
         this.logger = requireNonNull(logger);
         this.messageConsumer = requireNonNull(messageConsumer);
         this.command = requireNonNull(command);
@@ -139,7 +143,7 @@ implements RunnableFuture<PackerCommandResult>
     public PackerCommandResult get(long timeout, TimeUnit unit)
     throws InterruptedException, ExecutionException, TimeoutException
     {
-        TimeoutHandler timeoutHandler = new RelevantTimeoutHandler(
+        TimeoutHandler timeoutHandler = timeoutHandlerBuilder.build(
             timeout,
             unit);
         complete(timeoutHandler, false);
@@ -309,4 +313,10 @@ interface PackerExecutionBuilder
         String name,
         List<Object> args)
     throws IOException, InterruptedException;
+}
+
+@FunctionalInterface
+interface TimeoutHandlerBuilder
+{
+    TimeoutHandler build(long timeout, TimeUnit unit);
 }
