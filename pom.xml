@@ -8,7 +8,7 @@
     
     <groupId>io.github.miquelo.maven.plugin.packer</groupId>
     <artifactId>packer-maven-plugin</artifactId>
-    <version>0.4.1</version>
+    <version>0.4.2-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
     
     <name>Packer Maven Plugin</name>

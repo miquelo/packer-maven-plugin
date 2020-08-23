@@ -1,0 +1,30 @@
+{
+  "variables": {
+    "version": ""
+  },
+  "builders": [
+    {
+      "type": "docker",
+      "image": "openjdk:8",
+      "commit": true,
+      "changes": [
+        "WORKDIR /usr/local/lib",
+        "ENTRYPOINT [ \"java\", \"-Dcom.sun.management.jmxremote.port=9999\", \"-Dcom.sun.management.jmxremote.authenticate=false\", \"-Dcom.sun.management.jmxremote.ssl=false\", \"-jar\", \"packer-maven-plugin-example-jmx-server-{{user `version`}}.jar\" ]"
+      ]
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "{{template_dir}}/package/packer-maven-plugin-example-jmx-server-{{user `version`}}.jar",
+      "destination": "/usr/local/lib/"
+    }
+  ],
+  "post-processors": [
+    {
+      "type": "docker-tag",
+      "repository": "miquelo/packer-maven-plugin-example-jmx-server",
+      "tag": "{{user `version`}}"
+    }
+  ]
+}
