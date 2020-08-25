@@ -2,13 +2,18 @@ package io.github.miquelo.maven.plugin.packer.example;
 
 import static java.lang.String.format;
 import static java.lang.System.out;
+import static java.lang.Thread.sleep;
+import static java.lang.management.ManagementFactory.getPlatformMBeanServer;
+import static java.util.stream.Collectors.toMap;
 
-import java.lang.management.ManagementFactory;
+import java.util.AbstractMap.SimpleEntry;
+import java.util.Hashtable;
+import java.util.Map.Entry;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Stream;
 
 import javax.management.InstanceAlreadyExistsException;
 import javax.management.MBeanRegistrationException;
-import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
@@ -16,6 +21,8 @@ import javax.management.ObjectName;
 public class JMXService
 implements JMXServiceMBean
 {
+    private static final long TEMINATION_SECONDS = 8L;
+    
     private transient Semaphore semaphore;
     
     public JMXService()
@@ -47,13 +54,11 @@ implements JMXServiceMBean
         InstanceAlreadyExistsException,
         MalformedObjectNameException
     {
-        MBeanServer server = ManagementFactory.getPlatformMBeanServer();
-        server.registerMBean(
-            this,
-            new ObjectName(format(
-                "%s:type=basic,name=%s",
-                "io.github.miquelo.maven.plugin.packer.example",
-                "packer-maven-plugin-example-jmx-server")));
+        getPlatformMBeanServer().registerMBean(this, new ObjectName(
+            "io.github.miquelo.maven.plugin.packer.example",
+            new Hashtable<>(Stream.of(
+                new SimpleEntry<>("name", "JMXService"))
+                .collect(toMap(Entry::getKey, Entry::getValue)))));
         semaphore.acquire();
     }
     
@@ -61,5 +66,9 @@ implements JMXServiceMBean
     throws InterruptedException
     {
         semaphore.acquire();
+        out.println(format(
+            "Waiting %d seconds before termination...",
+            TEMINATION_SECONDS));
+        sleep(TEMINATION_SECONDS * 1000L);
     }
 }

@@ -1,6 +1,6 @@
 {
   "variables": {
-    "version": ""
+    "repositoryName": "repository"
   },
   "builders": [
     {
@@ -8,23 +8,26 @@
       "image": "openjdk:8",
       "commit": true,
       "changes": [
-        "WORKDIR /usr/local/lib",
-        "ENTRYPOINT [ \"java\", \"-Dcom.sun.management.jmxremote.port=9999\", \"-Dcom.sun.management.jmxremote.authenticate=false\", \"-Dcom.sun.management.jmxremote.ssl=false\", \"-jar\", \"packer-maven-plugin-example-jmx-server-{{user `version`}}.jar\" ]"
+        "ENTRYPOINT /init"
       ]
     }
   ],
   "provisioners": [
     {
+      "type": "shell",
+      "script": "{{template_dir}}/setup.sh"
+    },
+    {
       "type": "file",
-      "source": "{{template_dir}}/package/packer-maven-plugin-example-jmx-server-{{user `version`}}.jar",
-      "destination": "/usr/local/lib/"
+      "source": "{{template_dir}}/${project.artifactId}-${project.version}.jar",
+      "destination": "/usr/local/lib/application/"
     }
   ],
   "post-processors": [
     {
       "type": "docker-tag",
-      "repository": "miquelo/packer-maven-plugin-example-jmx-server",
-      "tag": "{{user `version`}}"
+      "repository": "{{ user `repositoryName` }}/${project.artifactId}",
+      "tag": "${project.version}"
     }
   ]
 }

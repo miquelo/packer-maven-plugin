@@ -44,7 +44,6 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.2.0</version>
                 <configuration>
-                    <outputDirectory>${basedir}/src/main/packer/package</outputDirectory>
                     <archive>
                         <manifest>
                             <addClasspath>true</addClasspath>
@@ -52,6 +51,35 @@
                         </manifest>
                     </archive>
                 </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>packer-resources</id>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <phase>package</phase>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/packer/input</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/packer</directory>
+                                    <filtering>true</filtering>
+                                </resource>
+                                <resource>
+                                    <directory>${project.build.directory}</directory>
+                                    <include>${project.artifactId}-${project.version}.jar</include>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             
             <plugin>
@@ -67,20 +95,15 @@
                         <phase>package</phase>
                         <configuration>
                             <fileSet>
-                                <directory>${basedir}/src/main/packer</directory>
-                                <includes>
-                                    <include>template.json</include>
-                                    <include>package/packer-maven-plugin-example-jmx-server-${project.version}.jar</include>
-                                </includes>
-                                <outputDirectory>${project.build.directory}/packer</outputDirectory>
+                                <directory>${project.build.directory}/packer/input</directory>
+                                <outputDirectory>${project.build.directory}/packer/stage</outputDirectory>
                             </fileSet>
                             <vars>
                                 <property>
-                                    <name>version</name>
-                                    <value>${project.version}</value>
+                                    <name>repositoryName</name>
+                                    <value>miquelo</value>
                                 </property>
                             </vars>
-                            <skip>false</skip>
                         </configuration>
                     </execution>
                 </executions>
