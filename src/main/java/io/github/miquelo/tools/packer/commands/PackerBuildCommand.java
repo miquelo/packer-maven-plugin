@@ -3,25 +3,29 @@ package io.github.miquelo.tools.packer.commands;
 import static io.github.miquelo.tools.packer.PackerCommandFailureCode
     .FAILURE_ERROR;
 import static java.lang.String.format;
-import static java.nio.file.Files.copy;
-import static java.nio.file.Files.createDirectories;
-import static java.nio.file.Files.delete;
-import static java.util.Comparator.comparing;
+import static java.nio.file.Files.walk;
+import static java.util.Collections.emptySet;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
+import static javax.xml.bind.DatatypeConverter.parseHexBinary;
+import static javax.xml.bind.DatatypeConverter.printHexBinary;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,38 +46,33 @@ public class PackerBuildCommand
 implements PackerCommand
 {
     private static final String COMMAND_NAME = "build";
-    
+
     private static final String CHECKSUM_FILE_NAME = ".checksum";
+    private static final String CHECKSUM_ALGORITHM = "SHA-256";
     
-    static final String CHECKSUM_ALGORITHM = "SHA-256";
+    private static final int DIGEST_BUFFER_SIZE = 4 * 1024;
     
-    private final File sourceDir;
-    private final File workingDir;
-    private final File checksumFile;
-    private final List<FileHash> sourceFileHashList;
+    private final MessageDigestCreator digestCreator;
+    private final File inputDir;
     private final boolean changesNeeded;
     private final boolean invalidateOnFailure;
     private final List<Object> arguments;
-    private final BufferedReaderBuilder bufferedReaderBuilder;
+    private final File checksumFile;
     
     /**
      * Packer {@code build} command complete constructor.
      * 
      * @param digestCreator
-     *     Message digest used to obtain source files hash.
-     * @param sourceDir
-     *     Directory where source files are located.
-     * @param workingDir
-     *     Directory where build command will work at.
-     * @param sourceFilePathSet
-     *     Selected source files.
+     *     Message digest used to obtain input files hash.
+     * @param inputDir
+     *     Directory where input files are located.
      * @param changesNeeded
      *     Whether changes on source files are needed for this command to don't
      *     be ignored.
      * @param invalidateOnFailure
      *     Whether files will be invalidated if command executions fails.
      * @param templatePath
-     *     Source directory relative path of template used for this build.
+     *     Input directory relative path of template used for this build.
      * @param only
      *     Set of builder names that must be taken into account. Empty for all.
      * @param except
@@ -87,9 +86,7 @@ implements PackerCommand
      */
     public PackerBuildCommand(
         MessageDigestCreator digestCreator,
-        File sourceDir,
-        File workingDir,
-        Set<String> sourceFilePathSet,
+        File inputDir,
         boolean changesNeeded,
         boolean invalidateOnFailure,
         String templatePath,
@@ -99,97 +96,37 @@ implements PackerCommand
         Map<String, Object> vars,
         Set<String> varFiles)
     {
-        this(
-            digestCreator,
-            sourceDir,
-            workingDir,
-            sourceFilePathSet,
-            changesNeeded,
-            invalidateOnFailure,
-            templatePath,
-            force,
-            only,
-            except,
-            vars,
-            varFiles,
-            CHECKSUM_ALGORITHM);
-    }
-    
-    PackerBuildCommand(
-        MessageDigestCreator digestCreator,
-        File sourceDir,
-        File workingDir,
-        Set<String> sourceFilePathSet,
-        boolean changesNeeded,
-        boolean invalidateOnFailure,
-        String templatePath,
-        boolean force,
-        Set<String> only,
-        Set<String> except,
-        Map<String, Object> vars,
-        Set<String> varFiles,
-        String checksumAlgorithm)
-    {
-        this(
-            digestCreator,
-            sourceDir,
-            workingDir,
-            sourceFilePathSet,
-            changesNeeded,
-            invalidateOnFailure,
-            templatePath,
-            force,
-            only,
-            except,
-            vars,
-            varFiles,
-            checksumAlgorithm,
-            PackerBuildCommand::bufferedReaderBuild);
-    }
-    
-    PackerBuildCommand(
-        MessageDigestCreator digestCreator,
-        File sourceDir,
-        File workingDir,
-        Set<String> sourceFilePathSet,
-        boolean changesNeeded,
-        boolean invalidateOnFailure,
-        String templatePath,
-        boolean force,
-        Set<String> only,
-        Set<String> except,
-        Map<String, Object> vars,
-        Set<String> varFiles,
-        String checksumAlgorithm,
-        BufferedReaderBuilder bufferedReaderBuilder)
-    {
-        if (!sourceDir.isDirectory())
-            throw new IllegalArgumentException(format(
-                "Source path %s is not a directory",
-                sourceDir.getAbsolutePath()));
-        if (workingDir.exists() && !workingDir.isDirectory())
-            throw new IllegalArgumentException(format(
-                "Working path %s is not a directory",
-                sourceDir.getAbsolutePath()));
-        
-        this.sourceDir = sourceDir;
-        this.workingDir = workingDir;
-        checksumFile = new File(this.workingDir, CHECKSUM_FILE_NAME);
-        sourceFileHashList = toSourceFileHashList(
-            digestCreator,
-            checksumAlgorithm,
-            this.sourceDir,
-            sourceFilePathSet);
+        this.digestCreator = requireNonNull(digestCreator);
+        this.inputDir = requireNonNull(inputDir);
         this.changesNeeded = changesNeeded;
         this.invalidateOnFailure = invalidateOnFailure;
-        arguments = toArguments(
-            templatePath,
-            force,
-            only,
-            except,
-            vars,
-            varFiles);
-        this.bufferedReaderBuilder = requireNonNull(bufferedReaderBuilder);
+        
+        arguments = Stream.of(
+            force ? Stream.of("-force") : Stream.empty(),
+            only.isEmpty() ? Stream.empty() : Stream.of(
+                "-only",
+                only.stream()
+                    .collect(joining(","))),
+            except.isEmpty() ? Stream.empty() : Stream.of(
+                "-except",
+                except.stream()
+                    .collect(joining(","))),
+            vars.entrySet().stream()
+                .flatMap(var -> Stream.of(
+                    "-var",
+                    String.format(
+                        "%s=%s",
+                        var.getKey(),
+                        var.getValue().toString()))),
+            varFiles.stream()
+                .flatMap(varFile -> Stream.of(
+                    "-var-file",
+                    varFile)),
+            Stream.of(templatePath))
+            .flatMap(identity())
+            .collect(toList());
+        
+        checksumFile = new File(this.inputDir, CHECKSUM_FILE_NAME);
     }
     
     @Override
@@ -207,7 +144,7 @@ implements PackerCommand
     @Override
     public Optional<File> getWorkingDir()
     {
-        return Optional.of(workingDir);
+        return Optional.of(inputDir);
     }
     
     @Override
@@ -216,11 +153,12 @@ implements PackerCommand
         TimeoutHandler timeoutHandler)
     throws PackerCommandException, TimeoutException
     {
-        if (hasChanges())
+        logger.debug(format("Using %s as input directory", inputDir));
+        
+        Set<ChecksumEntry> currentChecksum = currentChecksumGet();
+        if (!currentChecksum.equals(previousChecksumGet()))
         {
-            prepareWorkingDir();
-            prepareChecksumFile();
-            updateWorkingFiles();
+            checksumUpdate(currentChecksum);
             return true;
         }
         if (changesNeeded)
@@ -240,13 +178,13 @@ implements PackerCommand
     public void onFailure(PackerCommandFailureCode failureCode)
     {
         if (invalidateOnFailure)
-            invalidateWorkingFiles();
+            checksumFile.delete();
     }
     
     @Override
     public void onAbort()
     {
-        invalidateWorkingFiles();
+        checksumFile.delete();
     }
     
     @Override
@@ -255,235 +193,191 @@ implements PackerCommand
         return FAILURE_ERROR;
     }
     
-    private boolean hasChanges()
-    throws PackerCommandException
-    {
-        try (BufferedReader reader = bufferedReaderBuilder.build(checksumFile))
-        {
-            List<FileHash> result = new ArrayList<>();
-            String line = reader.readLine();
-            while (line != null)
-            {
-                result.add(FileHash.parse(line));
-                line = reader.readLine();
-            }
-            return !sourceFileHashList.equals(result);
-        }
-        catch (FileNotFoundException exception)
-        {
-            return true;
-        }
-        catch (IOException exception)
-        {
-            throw new PackerCommandException(format(
-                "Unable to retrieve file hash list"),
-                exception);
-        }
-    }
-    
-    private void prepareWorkingDir()
-    {
-        if (!workingDir.exists())
-            workingDir.mkdirs();
-    }
-    
-    private void prepareChecksumFile()
+    private Set<ChecksumEntry> currentChecksumGet()
     throws PackerCommandException
     {
         try
         {
-            if (!checksumFile.exists())
-                checksumFile.createNewFile();
+            return walk(inputDir.toPath())
+                .filter(this::isRegularFile)
+                .filter(this::isNotChecksumFile)
+                .map(this::toChecksumEntry)
+                .collect(toSet());
         }
         catch (IOException exception)
         {
-            throw new PackerCommandException(format(
-                "Could not create chechsum file %s",
-                checksumFile.getAbsolutePath()),
-                exception);
+            throw new PackerCommandException(exception);
+        }
+        catch (
+            UncheckedIOException |
+            UncheckedNoSuchAlgorithmException exception)
+        {
+            throw new PackerCommandException(exception.getCause());
         }
     }
     
-    private void updateWorkingFiles()
+    private Set<ChecksumEntry> previousChecksumGet()
+    throws PackerCommandException
+    {
+        try (BufferedReader reader = newBufferedReader(checksumFile))
+        {
+            return reader.lines()
+                .map(ChecksumEntry::parse)
+                .collect(toSet());
+        }
+        catch (FileNotFoundException exception)
+        {
+            return emptySet();
+        }
+        catch (IOException exception)
+        {
+            throw new PackerCommandException(exception);
+        }
+        catch (UncheckedIOException exception)
+        {
+            throw new PackerCommandException(exception.getCause());
+        }
+    }
+    
+    private void checksumUpdate(Set<ChecksumEntry> checksum)
     throws PackerCommandException
     {
         try (PrintWriter writer = new PrintWriter(checksumFile))
         {
-            sourceFileHashList.forEach(fileHash -> updateFile(
-                writer,
-                fileHash.toString(),
-                new File(sourceDir, fileHash.getRelativePath()),
-                new File(workingDir, fileHash.getRelativePath())));
+            checksum.forEach(entry -> writer.println(entry));
         }
-        catch (UpdateFileException exception)
+        catch (FileNotFoundException exception)
         {
-            throw new PackerCommandException(format(
-                "Could not update file %s from file %s",
-                exception.sourcePath,
-                exception.targetPath),
-                exception.getCause());
+            createNewFile(checksumFile);
+        }
+        catch (UncheckedIOException exception)
+        {
+            throw new PackerCommandException(exception.getCause());
+        }
+    }
+    
+    private boolean isRegularFile(Path path)
+    {
+        return path.toFile().isFile();
+    }
+    
+    private boolean isNotChecksumFile(Path path)
+    {
+        return !path.toAbsolutePath()
+            .equals(checksumFile.getAbsoluteFile().toPath());
+    }
+    
+    private ChecksumEntry toChecksumEntry(Path path)
+    {
+        try (InputStream input = new FileInputStream(path.toFile()))
+        {
+            MessageDigest digest = digestCreator.create(CHECKSUM_ALGORITHM);
+            byte[] buf = new byte[DIGEST_BUFFER_SIZE];
+            int len = input.read(buf, 0, DIGEST_BUFFER_SIZE);
+            while (len > 0)
+            {
+                digest.update(buf, 0, len);
+                len = input.read(buf, 0, DIGEST_BUFFER_SIZE);
+            }
+            return new ChecksumEntry(buf, path.toString());
         }
         catch (IOException exception)
         {
-            throw new PackerCommandException(
-                "Could not updates files",
-                exception.getCause());
+            throw new UncheckedIOException(exception);
+        }
+        catch (NoSuchAlgorithmException exception)
+        {
+            throw new UncheckedNoSuchAlgorithmException(exception);
         }
     }
     
-    private void invalidateWorkingFiles()
-    {
-        checksumFile.delete();
-    }
-    
-    private static List<FileHash> toSourceFileHashList(
-        MessageDigestCreator digestCreator,
-        String checksumAlgorith,
-        File sourceDir,
-        Set<String> sourceFilePathSet)
-    {
-        try
-        {
-            return sourceFilePathSet.stream()
-                .map(sourceFilePath -> toFileHash(
-                    digestCreator,
-                    checksumAlgorith,
-                    sourceDir,
-                    sourceFilePath))
-                .sorted(comparing(FileHash::getRelativePath))
-                .collect(toList());
-        }
-        catch (ToFileHashException exception)
-        {
-            throw new IllegalStateException(format(
-                "Could not calculate hash for of file %s",
-                exception.file.getAbsolutePath()),
-                exception.getCause());
-        }
-    }
-    
-    private static List<Object> toArguments(
-        String templatePath,
-        boolean force,
-        Set<String> only,
-        Set<String> except,
-        Map<String, Object> vars,
-        Set<String> varFiles)
-    {
-        return Stream.of(
-            force ? Stream.of("-force") : Stream.empty(),
-            only.isEmpty() ? Stream.empty() : Stream.of(
-                "-only",
-                only.stream()
-                    .collect(joining(","))),
-            except.isEmpty() ? Stream.empty() : Stream.of(
-                "-except",
-                except.stream()
-                        .collect(joining(","))),
-            vars.entrySet().stream()
-                .flatMap(var -> Stream.of(
-                    "-var",
-                    String.format(
-                        "%s=%s",
-                        var.getKey(),
-                        var.getValue().toString()))),
-            varFiles.stream()
-                .flatMap(varFile -> Stream.of(
-                    "-var-file",
-                    varFile)),
-            Stream.of(templatePath))
-            .flatMap(identity())
-            .collect(toList());
-    }
-    
-    private static FileHash toFileHash(
-        MessageDigestCreator digestCreator,
-        String checksumAlgorithm,
-        File baseDir,
-        String relativePath)
-    {
-        try
-        {
-            return FileHash.digest(
-                MessageDigest::getInstance,
-                baseDir,
-                checksumAlgorithm,
-                relativePath);
-        }
-        catch (NoSuchAlgorithmException | IOException exception)
-        {
-            throw new ToFileHashException(
-                exception,
-                new File(baseDir, relativePath));
-        }
-    }
-    
-    private static void updateFile(
-        PrintWriter checksumWriter,
-        String hashStr,
-        File sourceFile,
-        File targetFile)
-    {
-        try
-        {
-            createDirectories(targetFile.toPath().getParent());
-            if (targetFile.exists())
-                delete(targetFile.toPath());
-            copy(sourceFile.toPath(), targetFile.toPath());
-            checksumWriter.println(hashStr);
-        }
-        catch (IOException exception)
-        {
-            throw new UpdateFileException(
-                exception,
-                sourceFile.toPath(),
-                targetFile.toPath());
-        }
-    }
-    
-    private static BufferedReader bufferedReaderBuild(File file)
+    private static BufferedReader newBufferedReader(File file)
     throws IOException
     {
         return new BufferedReader(new FileReader(file));
     }
     
-    private static class ToFileHashException
-    extends RuntimeException
+    private static void createNewFile(File file)
+    throws PackerCommandException
     {
-        private static final long serialVersionUID = 1L;
-        
-        private final File file;
-
-        private ToFileHashException(Throwable cause, File file)
+        try
         {
-            super(cause);
-            this.file = file;
+            file.createNewFile();
         }
+        catch (IOException exception)
+        {
+            throw new PackerCommandException(exception);
+        }
+    }
+}
+
+class ChecksumEntry
+{
+    private final byte[] hash;
+    private final String path;
+    
+    ChecksumEntry(byte[] hash, String path)
+    {
+        this.hash = requireNonNull(hash);
+        this.path = requireNonNull(path);
     }
     
-    private static class UpdateFileException
-    extends RuntimeException
+    @Override
+    public int hashCode()
     {
-        private static final long serialVersionUID = 1L;
-
-        private final Path sourcePath;
-        private final Path targetPath;
-        
-        private UpdateFileException(
-            Throwable cause,
-            Path sourcePath,
-            Path targetPath)
+        return Arrays.hashCode(hash);
+    }
+    
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (obj == this)
+            return true;
+        if (getClass().equals(obj.getClass()))
         {
-            super(cause);
-            this.sourcePath = sourcePath;
-            this.targetPath = targetPath;
+            ChecksumEntry entry = (ChecksumEntry) obj;
+            return Arrays.equals(hash, entry.hash) && path.equals(entry.path);
         }
+        return false;
+    }
+    
+    @Override
+    public String toString()
+    {
+        return format("%s %s", toString(hash), path);
+    }
+    
+    static ChecksumEntry parse(String str)
+    {
+        String[] parts = str.split(" ");
+        return new ChecksumEntry(toBytes(parts[0]), parts[1]);
+    }
+    
+    private static byte[] toBytes(String str)
+    {
+        return parseHexBinary(str);
+    }
+    
+    private static String toString(byte[] bytes)
+    {
+        return printHexBinary(bytes);
     }
 }
 
-@FunctionalInterface
-interface BufferedReaderBuilder
+class UncheckedNoSuchAlgorithmException
+extends RuntimeException
 {
-    BufferedReader build(File file)
-    throws IOException;
+    private static final long serialVersionUID = 1L;
+
+    UncheckedNoSuchAlgorithmException(NoSuchAlgorithmException cause)
+    {
+        super(cause);
+    }
+    
+    @Override
+    public NoSuchAlgorithmException getCause()
+    {
+        return (NoSuchAlgorithmException) super.getCause();
+    }
 }
+

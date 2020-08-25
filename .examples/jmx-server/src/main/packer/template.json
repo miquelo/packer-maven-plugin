@@ -1,6 +1,8 @@
 {
   "variables": {
-    "repositoryName": "repository"
+    "dockerRepository": "repository",
+    "dockerTag": "tag",
+    "applicationDir": "/usr/local/lib/application"
   },
   "builders": [
     {
@@ -15,19 +17,22 @@
   "provisioners": [
     {
       "type": "shell",
-      "script": "{{template_dir}}/setup.sh"
+      "script": "{{template_dir}}/setup.sh",
+      "environment_vars": [
+        "APPLICATION_DIR={{ user `applicationDir` }}"
+      ]
     },
     {
       "type": "file",
       "source": "{{template_dir}}/${project.artifactId}-${project.version}.jar",
-      "destination": "/usr/local/lib/application/"
+      "destination": "{{ user `applicationDir` }}/"
     }
   ],
   "post-processors": [
     {
       "type": "docker-tag",
-      "repository": "{{ user `repositoryName` }}/${project.artifactId}",
-      "tag": "${project.version}"
+      "repository": "{{ user `dockerRepository` }}",
+      "tag": "{{ user `dockerTag` }}"
     }
   ]
 }

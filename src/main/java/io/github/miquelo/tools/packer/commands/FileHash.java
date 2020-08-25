@@ -15,6 +15,7 @@ import java.util.Arrays;
 
 import com.google.common.base.Objects;
 
+@Deprecated
 class FileHash
 {
     private static final int DIGEST_BUFFER_SIZE = 4 * 1024;

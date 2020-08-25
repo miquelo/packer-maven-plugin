@@ -1,6 +1,7 @@
 package io.github.miquelo.tools.packer;
 
-import static io.github.miquelo.tools.packer.PackerCommandFailureCode.FAILURE_ERROR;
+import static io.github.miquelo.tools.packer.PackerCommandFailureCode
+    .FAILURE_ERROR;
 import static java.util.Collections.emptyList;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+// TODO Fix test to become a true unit test. There are some calls to itself
 @ExtendWith(MockitoExtension.class)
 public class PackerCommandTaskTest
 {

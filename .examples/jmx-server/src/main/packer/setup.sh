@@ -1,7 +1,5 @@
 #!/bin/sh
 
-APPLICATION_DIR="/usr/local/lib/application"
-
 mkdir $APPLICATION_DIR 
 
 cat << EOF >> /init

@@ -22,8 +22,6 @@ import java.util.stream.Stream;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import org.apache.maven.shared.model.fileset.FileSet;
-import org.apache.maven.shared.model.fileset.util.FileSetManager;
 
 import io.github.miquelo.tools.packer.PackerCommand;
 import io.github.miquelo.tools.packer.PackerOutputMessage;
@@ -38,8 +36,6 @@ import io.github.miquelo.tools.packer.commands.PackerBuildCommand;
 public final class PackerBuildMojo
 extends AbstractPackerMojo
 {
-    private final FileSetManager fileSetManager;
-    
     @Parameter(
         required=true,
         readonly=true,
@@ -48,12 +44,13 @@ extends AbstractPackerMojo
     private MavenProject project;
     
     /**
-     * File set used on this build.
+     * Input directory.
      */
     @Parameter(
-        required=true
+        required=false,
+        defaultValue="${project.build.directory}/packer/input"
     )
-    private FileSet fileSet;
+    private File inputDirectory;
     
     /**
      * Whether must be some change for this build in order to be executed.
@@ -72,7 +69,7 @@ extends AbstractPackerMojo
     private boolean invalidateOnFailure;
     
     /**
-     * Template path relative to source directory.
+     * Template path relative to input directory.
      */
     @Parameter(
         defaultValue="template.json"
@@ -114,9 +111,8 @@ extends AbstractPackerMojo
     
     public PackerBuildMojo()
     {
-        fileSetManager = new FileSetManager(getLog());
         project = null;
-        fileSet = null;
+        inputDirectory = null;
         changesNeeded = false;
         invalidateOnFailure = false;
         templatePath = null;
@@ -132,10 +128,7 @@ extends AbstractPackerMojo
     {
         return new PackerBuildCommand(
             MessageDigest::getInstance,
-            new File(fileSet.getDirectory()),
-            new File(fileSet.getOutputDirectory()),
-            Stream.of(fileSetManager.getIncludedFiles(fileSet))
-                .collect(toSet()),
+            inputDirectory,
             changesNeeded,
             invalidateOnFailure,
             templatePath,
@@ -158,9 +151,7 @@ extends AbstractPackerMojo
                 .map(Properties::entrySet)
                 .map(Collection::stream)
                 .orElseGet(Stream::empty)
-                .collect(toMap(
-                    e -> e.getKey().toString(),
-                    Entry::getValue)),
+                .collect(toMap(e -> e.getKey().toString(), Entry::getValue)),
             Optional.ofNullable(varFiles)
                 .orElseGet(Collections::emptySet));
     }
