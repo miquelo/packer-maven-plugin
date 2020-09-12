@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PackerCommandTask.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Packer Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">io.github.miquelo.tools.packer</a> &gt; <span class="el_source">PackerCommandTask.java</span></div><h1>PackerCommandTask.java</h1><pre class="source lang-java linenums">package io.github.miquelo.tools.packer;
+
+import static io.github.miquelo.tools.packer.PackerExecution
+    .SUPPORTED_LAUNCHERS;
+import static java.lang.Runtime.getRuntime;
+import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.Executors.newFixedThreadPool;
+import static java.util.stream.Collectors.joining;
+import static java.util.stream.Stream.concat;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+
+/**
+ * Packer command task available as {@link RunnableFuture} that is intended to
+ * obtain a result represented by {@link PackerCommandResult}.
+ */
+public final class PackerCommandTask
+implements RunnableFuture&lt;PackerCommandResult&gt;
+{
+    private final PackerExecutionBuilder executionBuilder;
+    private final TimeoutHandlerBuilder timeoutHandlerBuilder;
+    private final PackerCommandLogger logger;
+    private final Consumer&lt;PackerOutputMessage&gt; messageConsumer;
+    private final PackerCommand command;
+    
+    private final AtomicBoolean started;
+    private final AtomicReference&lt;PackerCommandResult&gt; result;
+    private final ReadWriteLock resultLock;
+    private final AtomicBoolean cancelled;
+    private final AtomicReference&lt;ExecutionException&gt; executionException;
+    private final AtomicReference&lt;TimeoutException&gt; timeoutException;
+    private final AtomicReference&lt;PackerExecution&gt; execution;
+    
+    /**
+     * Command task with its logger, its output message consumer and the
+     * command to be executed.
+     * 
+     * @param logger
+     *     Logger for this task, that is also available for executed command.
+     * @param messageConsumer
+     *     Consumer for the output messages produced by Packer command
+     *     execution.
+     * @param command
+     *     Command to be executed by this task.
+     */
+    public PackerCommandTask(
+        PackerCommandLogger logger,
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        PackerCommand command)
+    {
+<span class="nc" id="L65">        this(</span>
+            PackerCommandTask::executionBuild,
+            RelevantTimeoutHandler::new,
+            logger,
+            messageConsumer,
+            command);
+<span class="nc" id="L71">    }</span>
+    
+    PackerCommandTask(
+        PackerExecutionBuilder executionBuilder,
+        TimeoutHandlerBuilder timeoutHandlerBuilder,
+        PackerCommandLogger logger,
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        PackerCommand command)
+<span class="fc" id="L79">    {</span>
+<span class="fc" id="L80">        this.executionBuilder = requireNonNull(executionBuilder);</span>
+<span class="fc" id="L81">        this.timeoutHandlerBuilder = requireNonNull(timeoutHandlerBuilder);</span>
+<span class="fc" id="L82">        this.logger = requireNonNull(logger);</span>
+<span class="fc" id="L83">        this.messageConsumer = requireNonNull(messageConsumer);</span>
+<span class="fc" id="L84">        this.command = requireNonNull(command);</span>
+        
+<span class="fc" id="L86">        started = new AtomicBoolean(false);</span>
+<span class="fc" id="L87">        result = new AtomicReference&lt;&gt;();</span>
+<span class="fc" id="L88">        resultLock = new ReentrantReadWriteLock();</span>
+<span class="fc" id="L89">        cancelled = new AtomicBoolean(false);</span>
+<span class="fc" id="L90">        executionException = new AtomicReference&lt;&gt;();</span>
+<span class="fc" id="L91">        timeoutException = new AtomicReference&lt;&gt;();</span>
+<span class="fc" id="L92">        execution = new AtomicReference&lt;&gt;();</span>
+<span class="fc" id="L93">    }</span>
+    
+    /**
+     * Complete task if it is not already started.
+     */
+    @Override
+    public void run()
+    {
+<span class="fc" id="L101">        complete(IrrelevantTimeoutHandler.INSTANCE, true);</span>
+<span class="fc" id="L102">    }</span>
+    
+    /**
+     * Flag indicating this task is already done.
+     */
+    @Override
+    public boolean isDone()
+    {
+<span class="fc bfc" id="L110" title="All 2 branches covered.">        return result.get() != null</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">            || cancelled.get()</span>
+<span class="fc bfc" id="L112" title="All 2 branches covered.">            || executionException.get() != null</span>
+<span class="fc bfc" id="L113" title="All 2 branches covered.">            || timeoutException.get() != null;</span>
+    }
+    
+    /**
+     * Flag indicating this task is cancelled.
+     */
+    @Override
+    public boolean isCancelled()
+    {
+<span class="fc" id="L122">        return cancelled.get();</span>
+    }
+    
+    /**
+     * Obtain result with waiting for computing it when needed.
+     */
+    @Override
+    public PackerCommandResult get()
+    throws InterruptedException, ExecutionException
+    {
+<span class="fc" id="L132">        complete(IrrelevantTimeoutHandler.INSTANCE, false);</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (executionException.get() != null)</span>
+<span class="fc" id="L134">            throw executionException.get();</span>
+<span class="fc" id="L135">        return resultGet();</span>
+    }
+    
+    /**
+     * Obtain result with waiting for computing it when needed during the
+     * specified time.
+     */
+    @Override
+    public PackerCommandResult get(long timeout, TimeUnit unit)
+    throws InterruptedException, ExecutionException, TimeoutException
+    {
+<span class="fc" id="L146">        TimeoutHandler timeoutHandler = timeoutHandlerBuilder.build(</span>
+            timeout,
+            unit);
+<span class="fc" id="L149">        complete(timeoutHandler, false);</span>
+<span class="pc bpc" id="L150" title="1 of 2 branches missed.">        if (executionException.get() != null)</span>
+<span class="nc" id="L151">            throw executionException.get();</span>
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">        if (timeoutException.get() != null)</span>
+<span class="nc" id="L153">            throw timeoutException.get();</span>
+<span class="fc" id="L154">        return resultTryGet(timeoutHandler.checkIt());</span>
+    }
+    
+    /**
+     * Cancel this task.
+     */
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning)
+    {
+<span class="pc bpc" id="L163" title="1 of 2 branches missed.">        if (cancelled.get())</span>
+<span class="nc" id="L164">            return true;</span>
+<span class="pc bpc" id="L165" title="1 of 2 branches missed.">        if (execution.get() != null &amp;&amp;</span>
+<span class="nc bnc" id="L166" title="All 4 branches missed.">            executionException.get() == null &amp;&amp;</span>
+            mayInterruptIfRunning)
+<span class="nc" id="L168">            cancelled.set(execution.get().interrupt());</span>
+        else
+<span class="fc" id="L170">            cancelled.set(true);</span>
+<span class="fc" id="L171">        return cancelled.get();</span>
+    }
+    
+    private void complete(TimeoutHandler timeoutHandler, boolean fromRun)
+    {
+<span class="fc bfc" id="L176" title="All 2 branches covered.">        if (cancelled.get())</span>
+<span class="fc" id="L177">            throw new CancellationException();</span>
+<span class="fc bfc" id="L178" title="All 2 branches covered.">        if (started.compareAndSet(false, true))</span>
+<span class="fc" id="L179">            complete(new Thread(this::aborted), timeoutHandler);</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">        else if (fromRun)</span>
+<span class="fc" id="L181">            throw new IllegalStateException(&quot;Already started...&quot;);</span>
+<span class="fc" id="L182">    }</span>
+    
+    private void complete(Thread shutdownHook, TimeoutHandler timeoutHandler)
+    {
+        try
+        {
+<span class="fc" id="L188">            resultLock.writeLock().lock();</span>
+<span class="fc" id="L189">            getRuntime().addShutdownHook(shutdownHook);</span>
+            
+<span class="fc bfc" id="L191" title="All 2 branches covered.">            if (command.init(logger, timeoutHandler.checkIt()))</span>
+            {
+<span class="fc" id="L193">                File workingDir = command.getWorkingDir()</span>
+<span class="fc" id="L194">                    .orElseGet(PackerCommandTask::defaultWorkingDir);</span>
+                
+<span class="fc" id="L196">                logger.debug(format(</span>
+                    &quot;Going to run Packer with arguments [%s] on %s&quot;,
+<span class="fc" id="L198">                    concat(</span>
+<span class="fc" id="L199">                        Stream.of(command.getName()),</span>
+<span class="fc" id="L200">                        command.getArguments().stream())</span>
+<span class="fc" id="L201">                        .map(Object::toString)</span>
+<span class="fc" id="L202">                        .collect(joining(&quot;, &quot;)),</span>
+<span class="fc" id="L203">                    workingDir.getAbsolutePath()));</span>
+                
+<span class="fc" id="L205">                execution.set(executionBuilder.build(</span>
+                    messageConsumer,
+                    workingDir,
+<span class="fc" id="L208">                    command.getName(),</span>
+<span class="fc" id="L209">                    command.getArguments()));</span>
+<span class="fc" id="L210">                int errorCode = execution.get().errorCode(</span>
+<span class="fc" id="L211">                    timeoutHandler.checkIt());</span>
+<span class="fc" id="L212">                execution.set(null);</span>
+                
+<span class="fc bfc" id="L214" title="All 2 branches covered.">                if (errorCode == 0)</span>
+                {
+<span class="fc" id="L216">                    command.onSuccess();</span>
+<span class="fc" id="L217">                    result.set(new PackerCommandResultImpl());</span>
+                }
+                else
+                {
+<span class="fc" id="L221">                    PackerCommandFailureCode failureCode =</span>
+<span class="fc" id="L222">                        command.mapFailureCode(errorCode);</span>
+<span class="fc" id="L223">                    command.onFailure(failureCode);</span>
+<span class="fc" id="L224">                    result.set(new PackerCommandResultImpl(failureCode));</span>
+                }
+<span class="fc" id="L226">            }</span>
+            else
+<span class="fc" id="L228">                result.set(new PackerCommandResultImpl(true));</span>
+        }
+<span class="fc" id="L230">        catch (PackerCommandException exception)</span>
+        {
+<span class="fc" id="L232">            result.set(new PackerCommandResultImpl(exception));</span>
+        }
+<span class="fc" id="L234">        catch (InterruptedException | IOException | RuntimeException exception)</span>
+        {
+<span class="fc" id="L236">            this.executionException.set(new ExecutionException(exception));</span>
+        }
+<span class="fc" id="L238">        catch (TimeoutException exception)</span>
+        {
+<span class="fc" id="L240">            this.timeoutException.set(exception);</span>
+        }
+        finally
+        {
+<span class="fc" id="L244">            getRuntime().removeShutdownHook(shutdownHook);</span>
+<span class="fc" id="L245">            resultLock.writeLock().unlock();</span>
+        }
+<span class="fc" id="L247">    }</span>
+    
+    private PackerCommandResult resultGet()
+    {
+        try
+        {
+<span class="fc" id="L253">            resultLock.readLock().lock();</span>
+<span class="fc" id="L254">            return result.get();</span>
+        }
+        finally
+        {
+<span class="fc" id="L258">            resultLock.readLock().unlock();</span>
+        }
+    }
+    
+    private PackerCommandResult resultTryGet(TimeoutHandler timeoutHandler)
+    throws InterruptedException, TimeoutException
+    {
+        try
+        {
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">            if (!resultLock.readLock().tryLock(</span>
+<span class="fc" id="L268">                timeoutHandler.getTimeout(),</span>
+<span class="fc" id="L269">                timeoutHandler.getUnit()))</span>
+<span class="nc" id="L270">                throw new TimeoutException();</span>
+<span class="fc" id="L271">            return result.get();</span>
+        }
+        finally
+        {
+<span class="fc" id="L275">            resultLock.readLock().unlock();</span>
+        }
+    }
+    
+    private void aborted()
+    {
+<span class="nc" id="L281">        command.onAbort();</span>
+<span class="nc" id="L282">        logger.warn(&quot;Packer execution aborted&quot;);</span>
+<span class="nc" id="L283">    }</span>
+    
+    private static File defaultWorkingDir()
+    {
+<span class="fc" id="L287">        return new File(System.getProperty(&quot;user.dir&quot;));</span>
+    }  
+    
+    private static PackerExecution executionBuild(
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        File workingDir,
+        String name,
+        List&lt;Object&gt; args)
+    throws IOException, InterruptedException
+    {
+<span class="nc" id="L297">    	return new PackerExecution(</span>
+    	    messageConsumer,
+    	    workingDir,
+    	    name,
+    	    args,
+    	    SUPPORTED_LAUNCHERS,
+<span class="nc" id="L303">    	    newFixedThreadPool(1));</span>
+    }
+}
+
+@FunctionalInterface
+interface PackerExecutionBuilder
+{
+    PackerExecution build(
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        File workingDir,
+        String name,
+        List&lt;Object&gt; args)
+    throws IOException, InterruptedException;
+}
+
+@FunctionalInterface
+interface TimeoutHandlerBuilder
+{
+    TimeoutHandler build(long timeout, TimeUnit unit);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

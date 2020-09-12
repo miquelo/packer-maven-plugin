@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProcessLauncher.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Packer Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">io.github.miquelo.tools.packer</a> &gt; <span class="el_source">ProcessLauncher.java</span></div><h1>ProcessLauncher.java</h1><pre class="source lang-java linenums">package io.github.miquelo.tools.packer;
+
+import static java.io.File.createTempFile;
+import static java.lang.ProcessBuilder.Redirect.PIPE;
+import static java.lang.Runtime.getRuntime;
+import static java.lang.String.format;
+import static java.nio.file.Files.copy;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Stream.concat;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Stream;
+
+interface ProcessLauncher
+{
+    boolean compatible();
+    
+    Process launch(File workingDir, String name, List&lt;Object&gt; args)
+    throws IOException;
+}
+
+abstract class AbstractProcessLauncher
+implements ProcessLauncher
+{
+    protected AbstractProcessLauncher()
+<span class="fc" id="L35">    {</span>
+<span class="fc" id="L36">    }</span>
+    
+    @Override
+    public Process launch(File workingDir, String name, List&lt;Object&gt; args)
+    throws IOException
+    {
+<span class="fc" id="L42">        return wrap(new ProcessBuilder(</span>
+<span class="fc" id="L43">            concat(</span>
+<span class="fc" id="L44">                command(),</span>
+<span class="fc" id="L45">                concat(</span>
+<span class="fc" id="L46">                    Stream.of(name),</span>
+<span class="fc" id="L47">                    args.stream()))</span>
+<span class="fc" id="L48">                        .map(Object::toString)</span>
+<span class="fc" id="L49">                        .collect(toList()))</span>
+<span class="fc" id="L50">            .directory(workingDir)</span>
+<span class="fc" id="L51">            .redirectOutput(PIPE)</span>
+<span class="fc" id="L52">            .start());</span>
+    }
+    
+    protected abstract Stream&lt;String&gt; command()
+    throws IOException;
+    
+    protected abstract Process wrap(Process process)
+    throws IOException;
+}
+
+class DefaultProcessLauncher
+extends AbstractProcessLauncher
+{
+<span class="fc" id="L65">    private static final List&lt;String&gt; COMMAND = Stream.of(</span>
+        &quot;packer&quot;,
+        &quot;-machine-readable&quot;)
+<span class="fc" id="L68">        .collect(toList());</span>
+    
+    private final List&lt;String&gt; command;
+    
+    DefaultProcessLauncher()
+    {
+<span class="fc" id="L74">        this(COMMAND);</span>
+<span class="fc" id="L75">    }</span>
+    
+    DefaultProcessLauncher(List&lt;String&gt; command)
+<span class="fc" id="L78">    {</span>
+<span class="fc" id="L79">        this.command = command;</span>
+<span class="fc" id="L80">    }</span>
+    
+    @Override
+    public boolean compatible()
+    {
+<span class="fc" id="L85">        return true;</span>
+    }
+
+    @Override
+    protected Stream&lt;String&gt; command()
+    throws IOException
+    {
+<span class="fc" id="L92">        return command.stream();</span>
+    }
+
+    @Override
+    protected Process wrap(Process process)
+    throws IOException
+    {
+<span class="fc" id="L99">        return process;</span>
+    }
+    
+}
+
+class UnixProcessLauncher
+extends AbstractProcessLauncher
+{
+    UnixProcessLauncher()
+<span class="fc" id="L108">    {</span>
+<span class="fc" id="L109">    }</span>
+    
+    @Override
+    public boolean compatible()
+    {
+        // TODO Detect that is UNIX like system
+<span class="fc" id="L115">        return true;</span>
+    }
+
+    @Override
+    public Stream&lt;String&gt; command()
+    throws IOException
+    {
+<span class="fc" id="L122">        File launcherFile = createTempFile(&quot;launcher&quot;, &quot;.sh&quot;);</span>
+<span class="fc" id="L123">        launcherFile.deleteOnExit();</span>
+<span class="fc" id="L124">        copy(</span>
+<span class="fc" id="L125">            getClass().getResourceAsStream(&quot;launcher-unix.sh&quot;),</span>
+<span class="fc" id="L126">            launcherFile.toPath(),</span>
+            REPLACE_EXISTING);
+<span class="fc" id="L128">        launcherFile.setExecutable(true);</span>
+<span class="fc" id="L129">        return Stream.of(launcherFile.getAbsolutePath());</span>
+    }
+
+    @Override
+    public Process wrap(Process process)
+    throws IOException
+    {
+<span class="fc" id="L136">        return new UnixProcessWrapper(process);</span>
+    }
+}
+
+class UnixProcessWrapper
+extends Process
+{
+    private final Process wrapped;
+    private final int pid;
+    private final Function&lt;String, Stream&lt;String&gt;&gt; executeFunction;
+    
+    public UnixProcessWrapper(Process wrapped)
+    throws IOException
+    {
+<span class="fc" id="L150">        this(wrapped, UnixProcessWrapper::execute);</span>
+<span class="fc" id="L151">    }</span>
+    
+    public UnixProcessWrapper(
+        Process wrapped,
+        Function&lt;String, Stream&lt;String&gt;&gt; executeFunction)
+    throws IOException
+<span class="fc" id="L157">    {</span>
+<span class="fc" id="L158">        this.wrapped = wrapped;</span>
+<span class="fc" id="L159">        pid = readPID(wrapped.getInputStream());</span>
+<span class="fc" id="L160">        this.executeFunction = executeFunction;</span>
+<span class="fc" id="L161">    }</span>
+    
+    @Override
+    public boolean isAlive()
+    {
+<span class="fc" id="L166">        return isAlive(executeFunction, pid);</span>
+    }
+    
+    @Override
+    public InputStream getInputStream()
+    {
+<span class="fc" id="L172">        return wrapped.getInputStream();</span>
+    }
+    
+    @Override
+    public InputStream getErrorStream()
+    {
+<span class="fc" id="L178">        return wrapped.getErrorStream();</span>
+    }
+
+    @Override
+    public OutputStream getOutputStream()
+    {
+<span class="fc" id="L184">        return wrapped.getOutputStream();</span>
+    }
+    
+    @Override
+    public int exitValue()
+    {
+<span class="fc" id="L190">        return wrapped.exitValue();</span>
+    }
+
+    @Override
+    public int waitFor()
+    throws InterruptedException
+    {
+<span class="fc" id="L197">        return wrapped.waitFor();</span>
+    }
+    
+    @Override
+    public void destroy()
+    {
+        try
+        {
+<span class="fc" id="L205">            destroy(executeFunction, pid);</span>
+        }
+        finally
+        {
+<span class="fc" id="L209">            wrapped.destroy();</span>
+        }
+<span class="fc" id="L211">    }</span>
+    
+    static Stream&lt;String&gt; execute(String command)
+    {
+        try
+        {
+<span class="fc" id="L217">            return new BufferedReader(new InputStreamReader(getRuntime()</span>
+<span class="fc" id="L218">                .exec(command)</span>
+<span class="fc" id="L219">                .getInputStream()))</span>
+<span class="fc" id="L220">                .lines();</span>
+        }
+<span class="fc" id="L222">        catch (IOException exception)</span>
+        {
+<span class="fc" id="L224">            throw new UncheckedIOException(exception);</span>
+        }
+    }
+    
+    private static int readPID(InputStream input)
+    throws IOException
+    {
+<span class="fc" id="L231">        int pid = 0;</span>
+<span class="fc" id="L232">        int c = input.read();</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">        while (c != '\n')</span>
+        {
+<span class="fc" id="L235">            pid *= 10;</span>
+<span class="fc" id="L236">            pid += c - '0';</span>
+<span class="fc" id="L237">            c = input.read();</span>
+        }
+<span class="fc" id="L239">        return pid;</span>
+        
+    }
+    
+    private static boolean isAlive(
+        Function&lt;String, Stream&lt;String&gt;&gt; executeFunction,
+        int pid)
+    {
+<span class="fc" id="L247">        return executeFunction.apply(format(&quot;ps -o stat= --pid %d&quot;, pid))</span>
+<span class="fc" id="L248">            .map(status -&gt; status.charAt(0))</span>
+<span class="fc" id="L249">            .anyMatch(statusCode -&gt; Stream.of('D', 'R', 'S')</span>
+<span class="fc" id="L250">                .filter(statusCode::equals)</span>
+<span class="fc bfc" id="L251" title="All 2 branches covered.">                .count() &gt; 0);</span>
+    }
+    
+    private static void destroy(
+        Function&lt;String, Stream&lt;String&gt;&gt; executeFunction,
+        int pid)
+    {
+<span class="fc" id="L258">        executeFunction.apply(format(&quot;ps -o pid= --ppid %d&quot;, pid))</span>
+<span class="fc" id="L259">            .map(String::trim)</span>
+<span class="fc" id="L260">            .map(Integer::parseInt)</span>
+<span class="fc" id="L261">            .forEach(subprocessPid -&gt; destroy(executeFunction, subprocessPid));</span>
+<span class="fc" id="L262">        executeFunction.apply(format(&quot;kill %d&quot;, pid));</span>
+<span class="fc" id="L263">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

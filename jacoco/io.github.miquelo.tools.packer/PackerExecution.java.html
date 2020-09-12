@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PackerExecution.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Packer Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">io.github.miquelo.tools.packer</a> &gt; <span class="el_source">PackerExecution.java</span></div><h1>PackerExecution.java</h1><pre class="source lang-java linenums">package io.github.miquelo.tools.packer;
+
+import static java.lang.Long.parseLong;
+import static java.time.Instant.ofEpochMilli;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+
+class PackerExecution
+{
+<span class="fc" id="L21">    public static final ProcessLauncher[] SUPPORTED_LAUNCHERS = {</span>
+        new UnixProcessLauncher(),
+        new DefaultProcessLauncher()
+    };
+    
+    private final Process process;
+    private final PackerOutputReaderTask outputReaderTask;
+    
+    PackerExecution(
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        File workingDir,
+        String name,
+        List&lt;Object&gt; args,
+        ProcessLauncher[] launchers,
+        Executor messageConsumerExecutor)
+    throws IOException, InterruptedException
+<span class="fc" id="L37">    {</span>
+<span class="fc" id="L38">        process = Stream.of(launchers)</span>
+<span class="fc" id="L39">            .filter(ProcessLauncher::compatible)</span>
+<span class="fc" id="L40">            .findAny()</span>
+<span class="fc" id="L41">            .orElseThrow(IllegalArgumentException::new)</span>
+<span class="fc" id="L42">            .launch(workingDir, name, args);</span>
+<span class="fc" id="L43">        outputReaderTask = new PackerOutputReaderTask(</span>
+            messageConsumer,
+<span class="fc" id="L45">            process.getInputStream());</span>
+<span class="fc" id="L46">        messageConsumerExecutor.execute(outputReaderTask);</span>
+<span class="fc" id="L47">    }</span>
+    
+    public int errorCode(TimeoutHandler timeoutHandler)
+    throws InterruptedException, TimeoutException
+    {
+<span class="fc bfc" id="L52" title="All 2 branches covered.">        if (timeoutHandler.isRelevant())</span>
+        {
+<span class="fc bfc" id="L54" title="All 2 branches covered.">            if (process.waitFor(</span>
+<span class="fc" id="L55">                timeoutHandler.getTimeout(),</span>
+<span class="fc" id="L56">                timeoutHandler.getUnit()))</span>
+            {
+<span class="fc" id="L58">                outputReaderTask.awaitTermination();</span>
+<span class="fc" id="L59">                return process.exitValue();</span>
+            }
+<span class="fc" id="L61">            process.destroy();</span>
+<span class="fc" id="L62">            outputReaderTask.awaitTermination();</span>
+<span class="fc" id="L63">            throw new TimeoutException();</span>
+        }
+<span class="fc" id="L65">        int code = process.waitFor();</span>
+<span class="fc" id="L66">        outputReaderTask.awaitTermination();</span>
+<span class="fc" id="L67">        return code;</span>
+    }
+    
+    public boolean interrupt()
+    {
+<span class="fc" id="L72">        process.destroy();</span>
+<span class="fc" id="L73">        outputReaderTask.awaitTermination();</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        return !process.isAlive();</span>
+    }
+}
+
+class PackerOutputReaderTask
+implements Runnable
+{
+    private final Consumer&lt;PackerOutputMessage&gt; messageConsumer;
+    private final BufferedReader reader;
+    private final Lock terminationLock;
+    
+    PackerOutputReaderTask(
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        InputStream input)
+<span class="fc" id="L88">    {</span>
+<span class="fc" id="L89">        this.messageConsumer = messageConsumer;</span>
+<span class="fc" id="L90">        reader = new BufferedReader(new InputStreamReader(input));</span>
+<span class="fc" id="L91">        terminationLock = new ReentrantLock();</span>
+<span class="fc" id="L92">    }</span>
+
+    @Override
+    public void run()
+    {
+        try
+        {
+<span class="fc" id="L99">            terminationLock.lock();</span>
+            
+<span class="fc" id="L101">            reader.lines()</span>
+<span class="fc" id="L102">                .map(PackerOutputReaderTask::messageParts)</span>
+<span class="fc" id="L103">                .forEach(this::messageAccept);</span>
+        }
+        finally
+        {
+<span class="fc" id="L107">            terminationLock.unlock();</span>
+        }
+<span class="fc" id="L109">    }</span>
+    
+    void awaitTermination()
+    {
+        try
+        {
+<span class="fc" id="L115">            terminationLock.lock();</span>
+        }
+        finally
+        {
+<span class="fc" id="L119">            terminationLock.unlock();</span>
+        }
+<span class="fc" id="L121">    }</span>
+    
+    private void messageAccept(String[] parts)
+    {
+        try
+        {
+<span class="fc" id="L127">            messageConsumer.accept(new PackerOutputMessageImpl(</span>
+<span class="fc" id="L128">                ofEpochMilli(parseLong(parts[0]) * 1000L),</span>
+                parts[1],
+                parts[2],
+<span class="fc" id="L131">                formatData(parts, 3)));</span>
+        }
+<span class="fc" id="L133">        catch (RuntimeException exception)</span>
+        {
+            // Ignore malformed output...
+<span class="fc" id="L136">        }</span>
+<span class="fc" id="L137">    }</span>
+    
+    private static String[] messageParts(String message)
+    {
+<span class="fc" id="L141">        return message.split(&quot;,&quot;, -1);</span>
+    }
+    
+    private static String[] formatData(String[] parts, int from)
+    {
+<span class="fc" id="L146">        String[] data = new String[parts.length - from];</span>
+<span class="fc bfc" id="L147" title="All 2 branches covered.">        for (int i = from; i &lt; parts.length; ++i)</span>
+<span class="fc" id="L148">            data[i - from] = formatDataPart(parts[i]);</span>
+<span class="fc" id="L149">        return data;</span>
+    }
+    
+    private static String formatDataPart(String part)
+    {
+<span class="fc" id="L154">        return part.replace(&quot;%!(PACKER_COMMA)&quot;, &quot;,&quot;)</span>
+<span class="fc" id="L155">            .replace(&quot;\\n&quot;, &quot;\n&quot;)</span>
+<span class="fc" id="L156">            .replace(&quot;\\r&quot;, &quot;\r&quot;);</span>
+    }
+}
+
+interface PackerOutputReaderTaskFactory
+{
+    PackerOutputReaderTask getTask(
+        Consumer&lt;PackerOutputMessage&gt; messageConsumer,
+        InputStream input);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

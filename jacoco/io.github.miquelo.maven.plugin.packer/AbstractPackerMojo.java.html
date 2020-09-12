@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractPackerMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Packer Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">io.github.miquelo.maven.plugin.packer</a> &gt; <span class="el_source">AbstractPackerMojo.java</span></div><h1>AbstractPackerMojo.java</h1><pre class="source lang-java linenums">package io.github.miquelo.maven.plugin.packer;
+
+import static java.util.concurrent.Executors.newFixedThreadPool;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Supplier;
+
+import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.plugins.annotations.Parameter;
+
+import io.github.miquelo.tools.packer.PackerCommand;
+import io.github.miquelo.tools.packer.PackerCommandException;
+import io.github.miquelo.tools.packer.PackerCommandFailureException;
+import io.github.miquelo.tools.packer.PackerCommandLogger;
+import io.github.miquelo.tools.packer.PackerCommandTask;
+import io.github.miquelo.tools.packer.PackerOutputMessage;
+
+public abstract class AbstractPackerMojo
+extends AbstractMojo
+{
+    private final ExecutorService commandExecutorService;
+    private final PackerCommandLogger commandLogger;
+    
+    /**
+     * Whether this execution must be skipped.
+     */
+    @Parameter(
+        defaultValue=&quot;false&quot;
+    )
+    private boolean skip;
+    
+    protected AbstractPackerMojo()
+<span class="nc" id="L37">    {</span>
+<span class="nc" id="L38">        commandExecutorService = newFixedThreadPool(1);</span>
+<span class="nc" id="L39">        commandLogger = new MojoPackerCommandLogger(this::getLog);</span>
+<span class="nc" id="L40">        skip = false;</span>
+<span class="nc" id="L41">    }</span>
+    
+    @Override
+    public final void execute()
+    throws MojoFailureException, MojoExecutionException
+    {
+        try
+        {
+<span class="nc bnc" id="L49" title="All 2 branches missed.">            if (skip)</span>
+<span class="nc" id="L50">                getLog().info(&quot;Execution skipped...&quot;);</span>
+            else
+            {
+<span class="nc" id="L53">                PackerCommandTask task = new PackerCommandTask(</span>
+                    commandLogger,
+                    this::acceptOutputMessage,
+<span class="nc" id="L56">                    command());</span>
+<span class="nc" id="L57">                commandExecutorService.submit(task, task)</span>
+<span class="nc" id="L58">                    .get()</span>
+<span class="nc" id="L59">                    .get()</span>
+<span class="nc" id="L60">                    .success();</span>
+            }
+        }
+<span class="nc" id="L63">        catch (</span>
+            InterruptedException |
+            ExecutionException |
+            PackerCommandException exception)
+        {
+<span class="nc" id="L68">            throw new MojoExecutionException(&quot;Command error&quot;, exception);</span>
+        }
+<span class="nc" id="L70">        catch (PackerCommandFailureException exception)</span>
+        {
+<span class="nc" id="L72">            throw new MojoFailureException(&quot;Command failure&quot;, exception);</span>
+<span class="nc" id="L73">        }</span>
+<span class="nc" id="L74">    }</span>
+    
+    protected abstract PackerCommand command();
+    
+    protected abstract void acceptOutputMessage(PackerOutputMessage message);
+    
+    private static class MojoPackerCommandLogger
+    implements PackerCommandLogger
+    {
+        private final Supplier&lt;Log&gt; logSupplier;
+        
+        private MojoPackerCommandLogger(Supplier&lt;Log&gt; logSupplier)
+<span class="nc" id="L86">        {</span>
+<span class="nc" id="L87">            this.logSupplier = logSupplier;</span>
+<span class="nc" id="L88">        }</span>
+
+        @Override
+        public void info(String message)
+        {
+<span class="nc" id="L93">            logSupplier.get().info(message);</span>
+<span class="nc" id="L94">        }</span>
+        
+        @Override
+        public void debug(String message)
+        {
+<span class="nc" id="L99">            logSupplier.get().debug(message);</span>
+<span class="nc" id="L100">        }</span>
+        
+        @Override
+        public void warn(String message)
+        {
+<span class="nc" id="L105">            logSupplier.get().warn(message);</span>
+<span class="nc" id="L106">        }</span>
+        
+        @Override
+        public void warn(String message, Throwable cause)
+        {
+<span class="nc" id="L111">            logSupplier.get().warn(message, cause);</span>
+<span class="nc" id="L112">        }</span>
+        
+        @Override
+        public void error(String message)
+        {
+<span class="nc" id="L117">            logSupplier.get().error(message);</span>
+<span class="nc" id="L118">        }</span>
+        
+        @Override
+        public void error(String message, Throwable cause)
+        {
+<span class="nc" id="L123">            logSupplier.get().error(message, cause);</span>
+<span class="nc" id="L124">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>
