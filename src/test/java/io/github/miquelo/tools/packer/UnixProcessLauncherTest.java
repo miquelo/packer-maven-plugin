@@ -5,6 +5,7 @@ import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.junit.jupiter.api.condition.OS.LINUX;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -17,8 +18,10 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.io.TempDir;
 
+@EnabledOnOs(LINUX)
 public class UnixProcessLauncherTest
 {
     private static final int SUCCESS_EXIT_CODE = 0;
